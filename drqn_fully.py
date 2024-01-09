@@ -292,7 +292,7 @@ if __name__ == "__main__":
 
     # Train
     for i in range(episodes):
-        s = env.reset(seed=seed)
+        s, _ = env.reset(seed=seed)
         obs = s # Use only Position of Cart and Pole
         done = False
         
@@ -303,11 +303,12 @@ if __name__ == "__main__":
 
             # Get action
             a, h, c = Q.sample_action(torch.from_numpy(obs).float().to(device).unsqueeze(0).unsqueeze(0), 
-                                              h.to(device), c.to(device),
-                                              epsilon)
+                                      h.to(device), 
+                                      c.to(device),
+                                      epsilon)
 
             # Do action
-            s_prime, r, done, _ = env.step(a)
+            s_prime, r, done, _, _ = env.step(a)
             obs_prime = s_prime
 
             # make data

@@ -20,6 +20,7 @@ elif torch.backends.mps.is_available():
 else:
     device = torch.device("cpu")
 
+print(device)
 
 # Q_network
 class Q_net(nn.Module):

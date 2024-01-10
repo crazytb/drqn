@@ -1,7 +1,10 @@
+# https://github.com/keep9oing/DRQN-Pytorch-CartPole-v1
+
 import sys
 from typing import Dict, List, Tuple
 
 import gymnasium as gym
+from gymnasium.wrappers import FlattenObservation
 import collections
 import random
 import numpy as np
@@ -10,8 +13,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-
 from torch.utils.tensorboard import SummaryWriter
+
+from environment import ShowerEnv
 
 if torch.cuda.is_available():
     device = torch.device("cuda")
@@ -88,7 +92,7 @@ class EpisodeMemory():
         sampled_buffer = []
 
         ##################### RANDOM UPDATE ############################
-        if self.random_update: # Random upodate
+        if self.random_update: # Random update
             sampled_episodes = random.sample(self.memory, self.batch_size)
             
             check_flag = True # check if every sample data to train is larger than batch size
@@ -234,7 +238,8 @@ if __name__ == "__main__":
     exp_num = 'SEED'+'_'+str(seed)
 
     # Set gym environment
-    env = gym.make(env_name)
+    # env = gym.make(env_name)
+    env = ShowerEnv()
 
     if torch.cuda.is_available():
         device = torch.device("cuda")
@@ -242,11 +247,12 @@ if __name__ == "__main__":
     # Set the seed
     np.random.seed(seed)
     random.seed(seed)
-    seed_torch(seed)
+    # seed_torch(seed)
     # env.seed(seed)
 
     # default `log_dir` is "runs" - we'll be more specific here
-    writer = SummaryWriter('runs/'+env_name+"_"+model_name+"_"+exp_num)
+    # writer = SummaryWriter('runs/'+env_name+"_"+model_name+"_"+exp_num)
+    writer = SummaryWriter(comment=env_name+"_"+model_name+"_"+exp_num)
 
     # Set parameters
     batch_size = 8

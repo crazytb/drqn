@@ -15,12 +15,12 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
 
-from environment import ShowerEnv
+from environment import PNDEnv
 
 if torch.cuda.is_available():
     device = torch.device("cuda")
 elif torch.backends.mps.is_available():
-    device = torch.device("mps") if torch.backends.mps.is_available() else "cpu"
+    device = torch.device("mps")
 else:
     device = torch.device("cpu")
 
@@ -239,7 +239,7 @@ if __name__ == "__main__":
 
     # Set gym environment
     # env = gym.make(env_name)
-    env = ShowerEnv()
+    env = PNDEnv()
 
     if torch.cuda.is_available():
         device = torch.device("cuda")
@@ -252,7 +252,7 @@ if __name__ == "__main__":
 
     # default `log_dir` is "runs" - we'll be more specific here
     # writer = SummaryWriter('runs/'+env_name+"_"+model_name+"_"+exp_num)
-    writer = SummaryWriter(comment=env_name+"_"+model_name+"_"+exp_num)
+    writer = SummaryWriter(comment="_"+env_name+"_"+model_name+"_"+exp_num)
 
     # Set parameters
     batch_size = 8

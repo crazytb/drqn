@@ -2,6 +2,7 @@ import numpy as np
 from gymnasium import Env
 from gymnasium import spaces
 from gymnasium.spaces import Discrete, Box
+import gymnasium as gym
 import math
 import random
 import torch.nn as nn
@@ -73,117 +74,58 @@ class DRQN(nn.Module):
         return self.layer3(x)
 
 
-class ShowerEnv(Env):
+class OneHotEncoding(gym.Space):
+    """
+    {0,...,1,...,0}
+
+    Example usage:
+    self.observation_space = OneHotEncoding(size=4)
+    """
+    def __init__(self, size=None):
+        assert isinstance(size, int) and size > 0
+        self.size = size
+        gym.Space.__init__(self, (), np.int64)
+
+    def sample(self):
+        one_hot_vector = np.zeros(self.size)
+        one_hot_vector[np.random.randint(self.size)] = 1
+        return one_hot_vector
+
+    def contains(self, x):
+        if isinstance(x, (list, tuple, np.ndarray)):
+            number_of_zeros = list(x).contains(0)
+            number_of_ones = list(x).contains(1)
+            return (number_of_zeros == (self.size - 1)) and (number_of_ones == 1)
+        else:
+            return False
+
+    def __repr__(self):
+        return "OneHotEncoding(%d)" % self.size
+
+    def __eq__(self, other):
+        return self.size == other.size
+
+
+class PNDEnv(Env):
     def __init__(self):
-        super(ShowerEnv, self).__init__()
-        # Actions we can take FORWARD, DISCARD, and SKIP
-        self.action_space = Discrete(3)
-        self.max_channel_quality = 2
-        self.max_current_time = 0
-        self.max_current_aoi = 1
-        self.max_buffer_location = 1
-        
+        super(PNDEnv, self).__init__()
+        # Actions we can take 0) transmit and 1) listen
+        self.action_space = Discrete(2)
+        # Observation space
         self.observation_space = spaces.Dict({
-            "channel_quality": spaces.Discrete(self.max_channel_quality),
-            "current_time": spaces.Box(low=0, high=1, shape=(1, 1)),
-            "current_aois": spaces.Box(low=0, high=1, shape=(1, NUMNODES)),
-            "node_location": spaces.MultiDiscrete([BUFFERSIZE] * NUMNODES),
-            "node_aoi": spaces.Box(low=0, high=1, shape=(1, NUMNODES)),
+            "transmission_prob": spaces.Box(low=0, high=1, shape=(1, 1)),
+            # [1, 0, 0, 0]: Transmission,
+            # [0, 1, 0, 0]: Listen and No Collision,
+            # [0, 0, 1, 0]: Listen and Collision Detected,
+            # [0, 0, 0, 1]: Listen and Channel Idle,
+            "prev_result": OneHotEncoding(size=4),
         })
         
-        self.inbuffer_info_node = np.zeros([BUFFERSIZE], dtype=int)
-        self.inbuffer_info_timestamp = np.zeros([BUFFERSIZE], dtype=float)
-        self.rng = default_rng()
-        self.current_obs = None
-
-    def _get_node_info(self, buffer_node_info, buffer_node_timestamp):
-        node_location = BUFFERSIZE * np.ones([NUMNODES], dtype=int)
-        node_aoi = np.zeros([NUMNODES], dtype=float)
-        for node_i in range(1, NUMNODES + 1):
-            try:
-                location = np.where(buffer_node_info == node_i)[0][0]
-                node_location[node_i - 1] = location
-                node_aoi[node_i - 1] = buffer_node_timestamp[location] / BEACONINTERVAL
-            except:
-                pass
-        return node_location, node_aoi
-
-    def _stepfunc(self, thres, x):
-        if x > thres:
-            return 1
-        else:
-            return 0
-    
-    def _get_obs(self):
-        return {
-            "channel_quality": self.channel_quality,
-            "current_time": self.current_time,
-            "current_aois": self.current_aois,
-            "node_location": self.node_location,
-            "node_aoi": self.node_aoi,
-        }
-
-    def _fill_first_zero(self, arr1, arr2):
-        if not np.any(arr1 == 0):
-            return arr1  # No zeros in arr1, return it as is
-
-        zero_index = np.where(arr1 == 0)[0][0]
-        remaining_zeros = np.count_nonzero(arr1 == 0) - zero_index  # Calculate the number of remaining zeros after the first zero
-        
-        if remaining_zeros >= len(arr2):
-            arr1[0][zero_index:zero_index + len(arr2)] = arr2[:remaining_zeros]
-        else:
-            arr1[0][zero_index:zero_index + remaining_zeros] = arr2[:remaining_zeros]
-
-        return arr1
-
-    def _flatten_dict_values(self, dict):
-        flattened = np.array([])
-        for v in list(dict.values()):
-            if isinstance(v, np.ndarray):
-                flattened = np.concatenate([flattened, np.squeeze(np.reshape(v, [1, v.size]))])
-            else:
-                flattened = np.concatenate([flattened, np.array([v])])
-        return flattened
-    
-    def _change_channel_quality(self):
-        # State settings
-        velocity = 100   # km/h
-        snr_thr = 15
-        snr_ave = snr_thr + 10
-        f_0 = 5.9e9 # Carrier freq = 5.9GHz, IEEE 802.11bd
-        speedoflight = 300000   # km/sec
-        f_d = velocity/(3600*speedoflight)*f_0  # Hz
-        packettime = 300    # us
-        fdtp = f_d*packettime/1e6
-        # 0: Good, 1: Bad
-        TRAN_01 = (fdtp*math.sqrt(2*math.pi*snr_thr/snr_ave))/(np.exp(snr_thr/snr_ave)-1)
-        TRAN_00 = 1 - TRAN_01
-        # TRAN_11 = fdtp*math.sqrt((2*math.pi*snr_thr)/snr_ave)
-        TRAN_10 = fdtp*math.sqrt((2*math.pi*snr_thr)/snr_ave)
-        TRAN_11 = 1 - TRAN_10
-
-        if self.channel_quality == 0:  # Bad state
-            if self._stepfunc(TRAN_00, random.random()) == 0: # 0 to 0
-                channel_quality = 0
-            else:   # 0 to 1
-                channel_quality = 1
-        else:   # Good state
-            if self._stepfunc(TRAN_11, random.random()) == 0: # 1 to 1
-                channel_quality = 1
-            else:   # 1 to 0
-                channel_quality = 0
-    
-        return channel_quality
-    
-    def _is_buffer_empty(self):
-        return self.leftbuffers == BUFFERSIZE
-    
     def reset(self, seed=None):
         super().reset(seed=seed)
         # State reset
-        self.channel_quality = self.rng.integers(0, self.max_channel_quality)
-        self.current_time = 0
+        self.txprob = np.random.uniform(0, 1)
+        self.prev_result = np.array([1, 0, 0])
         self.current_aois = np.zeros([NUMNODES], dtype=float)
         self.node_location = BUFFERSIZE * np.ones([NUMNODES], dtype=int)
         self.node_aoi = np.zeros([NUMNODES], dtype=float)
@@ -281,80 +223,7 @@ class ShowerEnv(Env):
         
         return self.current_obs, reward, False, done, self.info
 
-    def step_rlaqm(self, action, dflog):  # 여기 해야 함.
-        reward = 0
-        # 0: FORWARD
-        if action == 0:
-            if self._is_buffer_empty():
-                pass
-            else:
-                dequenode = self.inbuffer_info_node[0]
-                dequenodeaoi_timestamp = self.inbuffer_info_timestamp[0]
-                
-                if self.channel_quality == 0:
-                    self.current_aois[dequenode - 1] = self.current_time - (dequenodeaoi_timestamp/BEACONINTERVAL)
-                
-                # Left-shift bufferinfo
-                self.inbuffer_info_node[:-1] = self.inbuffer_info_node[1:]
-                self.inbuffer_info_node[-1] = 0
-                self.inbuffer_info_timestamp[:-1] = self.inbuffer_info_timestamp[1:]
-                self.inbuffer_info_timestamp[-1] = 0
-                self.leftbuffers += 1
-                self.insert_index -= 1
-            reward -= 0.308
-            self.consumed_energy += 280 * 1.1 * FRAMETIME    # milliamperes * voltage * time
-
-        # 1: DISCARD
-        elif action == 1:
-            if self._is_buffer_empty():
-                pass
-            else:
-                # Left-shift bufferinfo
-                self.inbuffer_info_node[:-1] = self.inbuffer_info_node[1:]
-                self.inbuffer_info_node[-1] = 0
-                self.inbuffer_info_timestamp[:-1] = self.inbuffer_info_timestamp[1:]
-                self.inbuffer_info_timestamp[-1] = 0
-                self.leftbuffers += 1
-                self.insert_index -= 1
-            reward -= 0.154
-            self.consumed_energy += 50 * 1.1 * FRAMETIME    # milliamperes * voltage * time
-
-        # 2: SKIP
-        elif action == 2:
-            pass
-        
-        self.node_location, self.node_aoi = self._get_node_info(self.inbuffer_info_node, self.inbuffer_info_timestamp)
-        self.channel_quality = self._change_channel_quality()
-        self.info = self._get_obs()
-        self.current_obs = self._flatten_dict_values(self.info)
-
-        self.leftslots -= 1
-        done = self.leftslots <= 0
-        
-        # Calculate link utilization
-        link_utilization = (len(dflog[dflog.time/BEACONINTERVAL < self.current_time]) * FRAMETIME) / (self.current_time * TIMEEPOCH)
-
-        # reward = (link_utilization**2 - 0.5) + (2/(1+(self.current_aois[self.current_aois != np.inf].mean()*BEACONINTERVAL/1000)/5) - 1.5)
-
-        return self.current_obs, reward, False, done, self.info
-    
-        
-
     
     def render(self):
         # Implement viz
         pass
-
-    # def getblockcount(self):
-    #     """
-    #     :return: scalar
-    #     """
-    #     return self.blockcount
-
-    def getaoi(self):
-        """
-        :return: scalar
-        """
-        return self.aoi
-
-    

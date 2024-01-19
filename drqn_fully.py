@@ -232,14 +232,15 @@ def save_model(model, path='default.pth'):
 if __name__ == "__main__":
 
     # Env parameters
-    model_name = "DRQN_POMDP_Random_FOMDP"
-    env_name = "CartPole-v1"
+    model_name = "DRQN"
+    env_name = "SALOHA"
     seed = 1
     exp_num = 'SEED'+'_'+str(seed)
 
     # Set gym environment
     # env = gym.make(env_name)
     env = PNDEnv()
+    # env = FlattenObservation(env)
 
     if torch.cuda.is_available():
         device = torch.device("cuda")
@@ -277,9 +278,9 @@ if __name__ == "__main__":
     
 
     # Create Q functions
-    Q = Q_net(state_space=env.observation_space.shape[0], 
+    Q = Q_net(state_space=5, # env.observation_space.shape[0]
               action_space=env.action_space.n).to(device)
-    Q_target = Q_net(state_space=env.observation_space.shape[0], 
+    Q_target = Q_net(state_space=5, 
                      action_space=env.action_space.n).to(device)
 
     Q_target.load_state_dict(Q.state_dict())
@@ -299,7 +300,7 @@ if __name__ == "__main__":
     # Train
     for i in range(episodes):
         s, _ = env.reset(seed=seed)
-        obs = s # Use only Position of Cart and Pole
+        obs = s
         done = False
         
         episode_record = EpisodeBuffer()

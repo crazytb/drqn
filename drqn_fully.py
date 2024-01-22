@@ -17,6 +17,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 from environment import PNDEnv
 
+
 if torch.cuda.is_available():
     device = torch.device("cuda")
 elif torch.backends.mps.is_available():
@@ -26,12 +27,33 @@ else:
 
 print(device)
 
+def make_adjacency_matrix(n: int, clique_size: int) -> np.ndarray:
+    """Make adjacency matrix of a clique network.
+    
+    Args:
+        n (int): Number of nodes.
+        clique_size (int): Clique size.
+    
+    Returns:
+        np.ndarray: Adjacency matrix.
+    """
+    adjacency_matrix = np.zeros((n, n))
+    for i in range(1, n):
+        true_clique_size = min(i, clique_size)
+        arr = np.array([1]*true_clique_size + [0]*(i - true_clique_size))
+        np.random.shuffle(arr)
+        adjacency_matrix[i, :i] = arr
+        adjacency_matrix[:i, i] = arr
+        adjacency_matrix[i, i]  = 1
+    return adjacency_matrix
+
+make_adjacency_matrix(10, 2)
+
 # Q_network
 class Q_net(nn.Module):
     def __init__(self, state_space=None,
                  action_space=None):
         super(Q_net, self).__init__()
-
         # space size check
         assert state_space is not None, "None state_space input: state_space should be selected."
         assert action_space is not None, "None action_space input: action_space should be selected."
@@ -59,9 +81,7 @@ class Q_net(nn.Module):
             return output[0].argmax().item(), output[1] , output[2]
     
     def init_hidden_state(self, batch_size, training=None):
-
         assert training is not None, "training step parameter should be dtermined"
-
         if training is True:
             return torch.zeros([1, batch_size, self.hidden_space]), torch.zeros([1, batch_size, self.hidden_space])
         else:
@@ -69,7 +89,6 @@ class Q_net(nn.Module):
 
 class EpisodeMemory():
     """Episode memory for recurrent agent"""
-
     def __init__(self, random_update=False, 
                        max_epi_num=100, max_epi_len=500,
                        batch_size=1,
@@ -238,7 +257,7 @@ if __name__ == "__main__":
     exp_num = 'SEED'+'_'+str(seed)
 
     # Set gym environment
-    # env = gym.make(env_name)
+    # env = gym.make("CartPole-v1")
     env = PNDEnv()
     # env = FlattenObservation(env)
 

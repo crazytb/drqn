@@ -8,6 +8,8 @@ from gymnasium.wrappers import FlattenObservation
 import collections
 import random
 import numpy as np
+import networkx as nx
+import matplotlib.pyplot as plt
 
 import torch
 import torch.nn as nn
@@ -44,10 +46,19 @@ def make_adjacency_matrix(n: int, clique_size: int) -> np.ndarray:
         np.random.shuffle(arr)
         adjacency_matrix[i, :i] = arr
         adjacency_matrix[:i, i] = arr
-        adjacency_matrix[i, i]  = 1
     return adjacency_matrix
 
-make_adjacency_matrix(10, 2)
+def show_graph_with_labels(adjacency_matrix):
+    rows, cols = np.where(adjacency_matrix == 1)
+    edges = zip(rows.tolist(), cols.tolist())
+    gr = nx.Graph()
+    gr.add_edges_from(edges)
+    nx.draw(gr, node_size=500, with_labels=True)
+    plt.show()
+
+adjacency = make_adjacency_matrix(10, 3)
+show_graph_with_labels(adjacency)
+
 
 # Q_network
 class Q_net(nn.Module):

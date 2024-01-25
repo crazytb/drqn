@@ -29,35 +29,51 @@ else:
 
 print(device)
 
-def make_adjacency_matrix(n: int, clique_size: int) -> np.ndarray:
+def make_adjacency_matrix(n: int, density: float) -> np.ndarray:
     """Make adjacency matrix of a clique network.
     
     Args:
         n (int): Number of nodes.
-        clique_size (int): Clique size.
+        density (float): Density of the clique network.
     
     Returns:
         np.ndarray: Adjacency matrix.
     """
+    if density < 0 or density > 1:
+        raise ValueError("Density must be between 0 and 1.")
+    
+    n_edges = int(n * (n - 1) / 2 * density)
     adjacency_matrix = np.zeros((n, n))
+    
     for i in range(1, n):
-        true_clique_size = min(i, clique_size)
-        arr = np.array([1]*true_clique_size + [0]*(i - true_clique_size))
+        adjacency_matrix[i-1, i] = 1
+        adjacency_matrix[i, i-1] = 1
+        n_edges -= 1
+    
+    # If the density of the current adjacency matrix is over density, return it.
+    if n_edges <= 0:
+        return adjacency_matrix
+    else:
+        arr = [1]*n_edges + [0]*((n-1)*(n-2)//2 - n_edges)
         np.random.shuffle(arr)
-        adjacency_matrix[i, :i] = arr
-        adjacency_matrix[:i, i] = arr
+        for i in range(0, n):
+            for j in range(i+2, n):
+                adjacency_matrix[i, j] = arr.pop()
+                adjacency_matrix[j, i] = adjacency_matrix[i, j]
     return adjacency_matrix
 
 def show_graph_with_labels(adjacency_matrix):
     rows, cols = np.where(adjacency_matrix == 1)
     edges = zip(rows.tolist(), cols.tolist())
-    gr = nx.Graph()
-    gr.add_edges_from(edges)
-    nx.draw(gr, node_size=500, with_labels=True)
+    G = nx.Graph()
+    G.add_edges_from(edges)
+    pos = nx.kamada_kawai_layout(G)
+    nx.draw_networkx(G, pos=pos, with_labels=True)
     plt.show()
+    
 
-adjacency = make_adjacency_matrix(10, 3)
-show_graph_with_labels(adjacency)
+adj = make_adjacency_matrix(10, 0.5)
+show_graph_with_labels(adj)
 
 
 # Q_network

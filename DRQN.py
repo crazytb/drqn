@@ -4,7 +4,7 @@
 import sys
 from typing import Dict, List, Tuple
 
-import gym
+import gymnasium as gym
 import collections
 import random
 import numpy as np
@@ -15,6 +15,8 @@ import torch.nn.functional as F
 import torch.optim as optim
 
 from torch.utils.tensorboard import SummaryWriter
+
+from environment import *
 
 
 # Q_network
@@ -219,7 +221,7 @@ def seed_torch(seed):
 
 def save_model(model, path='default.pth'):
         torch.save(model.state_dict(), path)
-
+        
 if __name__ == "__main__":
 
     # Env parameters
@@ -229,7 +231,8 @@ if __name__ == "__main__":
     exp_num = 'SEED'+'_'+str(seed)
 
     # Set gym environment
-    env = gym.make(env_name)
+    # env = gym.make(env_name)
+    env = PNDEnv(n=10, model="dumbbell")
 
     if torch.cuda.is_available():
         device = torch.device("cuda")

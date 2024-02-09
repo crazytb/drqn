@@ -32,67 +32,76 @@ class PNDEnv(Env):
         self.n = n
         self.density = density
         self.model = model
-                
+
         # Actions we can take 0) transmit and 1) listen
         self.action_space = MultiBinary(self.n)
         # Observation space
         self.observation_space = spaces.Dict({
-            "tx_prob": Box(low=0, high=1, shape=(self.n, 1)),
+            "current_age": Box(low=0, high=1, shape=(self.n, 1)),
             "prev_result": MultiBinary([self.n, 1]),
-            # [1, 0, 0, 0]: Transmission,
-            # [0, 1, 0, 0]: Listen and Channel Idle,
-            # [0, 0, 1, 0]: Listen and No Collision, 
-            # [0, 0, 0, 1]: Listen and Collision Detected,
+            # 0: Listening, 1: Transmitting
         })
 
-    def _get_obs(self):
-        transmission_prob = np.reshape(self._tx_prob, newshape=(self.n))
+    def get_obs(self):
+        current_age = np.reshape(self._current_age, newshape=(self.n))
         prev_result = np.reshape(self._prev_result, newshape=(self.n))
-        return np.concatenate([transmission_prob, prev_result])
+        return np.concatenate([current_age, prev_result])
     
-    def _get_info(self):
-        print("Transmission Probability, Prev Result")
+    def get_info(self):
+        print("Current Age, Prev Result")
         for i in range(self.n):
-            print(f"Node {i}: {self._tx_prob[i]}, {self._prev_result[i]}")
+            print(f"Node {i}: {self._current_age[i]}, {self._prev_result[i]}")
         
     def reset(self, seed=None):
         super().reset(seed=seed)
         # State reset
-        self._tx_prob = np.random.uniform(0, 1, size=(self.n, 1))
+        self._current_age = np.zeros((self.n, 1))
         self._prev_result = np.zeros((self.n, 1))
-        self.adjacency_matrix = self._make_adjacency_matrix()  # Adjacency matrix
-        self.remaining_nodes = [1]*self.n  # Remaining nodes
-        
-        observation = self._get_obs() 
-        info = None
-        return observation, info
+        self.adjacency_matrix = self.make_adjacency_matrix()  # Adjacency matrix
+        self.where_packet_is_from = np.array([None]*self.n)
+        self.episode_length = 1000
+
+        observation = self.get_obs() 
+        return observation, None
 
     def step(self, action: np.array):  # 여기 해야 함.
         # Check if the action is valid. Action length must be equal to the number of nodes and action must be 0 or 1. 
         reward = 0
-        assert len(action) == self.n, "Action length must be equal to the number of nodes."
+        assert len(action) == len(self._prev_result), "Action length must be equal to the number of nodes."
         assert all([a in [0, 1] for a in action]), "Action must be 0 or 1."
-        
+        self.where_packet_is_from = np.array([None]*self.n)
         self._prev_result = action
-        
-        for i in range(self.n):
-            if action[i] == 1:
-                # If one of the adjacent nodes is transmitting, collision occurs. Reward is negative POWERCOEFF.
-                if 1 in self.adjacency_matrix[i][action==1]:
-                    reward -= POWERCOEFF
-                # If one of the adjacent nodes is transmitting, collision occurs. Reward is negative POWERCOEFF.
-        
-        done = False
-        observation = self._get_obs()
 
-        return observation, reward, False, done, self.info
+        action_tiled = np.tile(action.reshape(-1, 1), (1, self.n))
+        tx_to_where = np.multiply(self.adjacency_matrix, action_tiled)
+
+        for i in np.where(action==1)[0]:
+            tx_to_where[:, i] = 0
+
+        collided_index = np.sum(tx_to_where, axis=0)>1
+        tx_to_where[:, collided_index] = 0
+
+        n_txtrial = np.count_nonzero(action)
+        idx_success = np.where(np.sum(tx_to_where, axis=1)==1)[0]
+
+        self._current_age += 1/self.episode_length
+        self._current_age = np.clip(self._current_age, 0, 1)
+        self._current_age[idx_success] = 0
+        self.episode_length -= 1
+        
+        reward = max(self._current_age) - n_txtrial * POWERCOEFF 
+
+        done = False
+        observation = self.get_obs()
+
+        return observation, reward, False, done, None
 
     
     def render(self):
         # Implement viz
         pass
     
-    def _make_adjacency_matrix(self) -> np.ndarray:
+    def make_adjacency_matrix(self) -> np.ndarray:
         """Make adjacency matrix of a clique network.
         
         Args:

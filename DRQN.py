@@ -1,4 +1,5 @@
 # https://github.com/keep9oing/DRQN-Pytorch-CartPole-v1
+# https://ropiens.tistory.com/80
 # % tensorboard --logdir=runs
 
 import sys
@@ -29,7 +30,7 @@ class Q_net(nn.Module):
         assert state_space is not None, "None state_space input: state_space should be selected."
         assert action_space is not None, "None action_space input: action_space should be selected."
 
-        self.hidden_space = 64
+        self.hidden_space = 16
         self.state_space = state_space
         self.action_space = action_space
 
@@ -85,7 +86,7 @@ class EpisodeMemory():
         sampled_buffer = []
 
         ##################### RANDOM UPDATE ############################
-        if self.random_update: # Random upodate
+        if self.random_update: # Random update
             sampled_episodes = random.sample(self.memory, self.batch_size)
             
             check_flag = True # check if every sample data to train is larger than batch size
@@ -233,6 +234,7 @@ if __name__ == "__main__":
     # Set gym environment
     # env = gym.make(env_name)
     env = PNDEnv(n=10, model="dumbbell")
+    env.reset()
 
     if torch.cuda.is_available():
         device = torch.device("cuda")
@@ -271,17 +273,22 @@ if __name__ == "__main__":
     
 
     # Create Q functions
-    Q = Q_net(state_space=env.observation_space.shape[0]-2, 
-              action_space=env.action_space.n).to(device)
-    Q_target = Q_net(state_space=env.observation_space.shape[0]-2, 
-                     action_space=env.action_space.n).to(device)
-
-    Q_target.load_state_dict(Q.state_dict())
+    # "-2" should be considered.
+    Q_cum = [Q_net(state_space=2, action_space=2).to(device) for _ in range(10)]
+    Q_target_cum = [Q_net(state_space=2, action_space=2).to(device) for _ in range(10)]
+    for i in range(10):
+        Q_target_cum[i].load_state_dict(Q_cum[i].state_dict())
+    # Q = Q_net(state_space=2, 
+    #           action_space=2).to(device)
+    # Q_target = Q_net(state_space=2, 
+    #                  action_space=2).to(device)
+    # Q_target.load_state_dict(Q.state_dict())
 
     # Set optimizer
     score = 0
     score_sum = 0
-    optimizer = optim.Adam(Q.parameters(), lr=learning_rate)
+    optimizer_cum = [optim.Adam(Q_cum[i].parameters(), lr=learning_rate) for i in range(10)]
+    # optimizer = optim.Adam(Q.parameters(), lr=learning_rate)
 
     epsilon = eps_start
     
@@ -293,38 +300,43 @@ if __name__ == "__main__":
     # Train
     for i in range(episodes):
         s, _ = env.reset()
-        obs = s[::2] # Use only Position of Cart and Pole
+        obs_cum = [s[np.array([x, x+10])] for x in range(10)]
+        # obs = s[np.array([0, 10])] # Use only Position of Cart and Pole, # "-2" should be considered.
         done = False
         
-        episode_record = EpisodeBuffer()
-        h, c = Q.init_hidden_state(batch_size=batch_size, training=False)
+        episode_record_cum = [EpisodeBuffer() for _ in range(10)]
+        # episode_record = EpisodeBuffer()
+        h_cum, c_cum = zip(*[Q_cum[i].init_hidden_state(batch_size=batch_size, training=False) for i in range(10)])
+        # h, c = Q.init_hidden_state(batch_size=batch_size, training=False)
 
         for t in range(max_step):
-
             # Get action
-            a, h, c = Q.sample_action(torch.from_numpy(obs).float().to(device).unsqueeze(0).unsqueeze(0), 
-                                              h.to(device), c.to(device),
-                                              epsilon)
-
+            a_cum, h_cum, c_cum = zip(*[Q_cum[i].sample_action(torch.from_numpy(obs_cum[i]).float().to(device).unsqueeze(0).unsqueeze(0),
+                                                               h_cum[i].to(device), c_cum[i].to(device),
+                                                               epsilon) for i in range(10)])
+            a = np.array(a_cum)
             # Do action
             s_prime, r, done, _, _ = env.step(a)
-            obs_prime = s_prime[::2]
+            # obs_prime = s_prime # "-2" should be considered.
+            obs_prime_cum = [s_prime[np.array([x, x+10])] for x in range(10)]
 
             # make data
             done_mask = 0.0 if done else 1.0
 
-            episode_record.put([obs, a, r/100.0, obs_prime, done_mask])
+            for i in range(10):
+                episode_record_cum[i].put([obs_cum[i], a[i], r/100.0, obs_prime_cum[i][np.array([i, i+10])], done_mask])
+            # episode_record.put([obs, a, r/100.0, obs_prime, done_mask])
 
-            obs = obs_prime
+            obs_cum = obs_prime_cum
             
-            score += r
+            score = r
             score_sum += r
 
             if len(episode_memory) >= min_epi_num:
-                train(Q, Q_target, episode_memory, device, 
-                        optimizer=optimizer,
-                        batch_size=batch_size,
-                        learning_rate=learning_rate)
+                for i in range(10):
+                    train(Q_cum[i], Q_target_cum[i], episode_memory, device, optimizer=optimizer_cum[i], batch_size=batch_size, learning_rate=learning_rate)
+                
+                train(Q, Q_target, episode_memory, device, optimizer=optimizer, batch_size=batch_size, learning_rate=learning_rate)
 
                 if (t+1) % target_update_period == 0:
                     # Q_target.load_state_dict(Q.state_dict()) <- navie update

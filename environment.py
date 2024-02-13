@@ -27,11 +27,12 @@ else:
 POWERCOEFF = 0.1
 
 class PNDEnv(Env):
-    def __init__(self, n: int=10, density: float=0.1, model: str=None):
+    def __init__(self, n: int=10, density: float=0.1, max_epi: int=2000, model: str=None):
         super(PNDEnv, self).__init__()
         self.n = n
         self.density = density
         self.model = model
+        self.max_episode_length = max_epi
 
         # Actions we can take 0) transmit and 1) listen
         self.action_space = MultiBinary(self.n)
@@ -59,7 +60,7 @@ class PNDEnv(Env):
         self._prev_result = np.zeros((self.n, 1))
         self.adjacency_matrix = self.make_adjacency_matrix()  # Adjacency matrix
         self.where_packet_is_from = np.array([None]*self.n)
-        self.episode_length = 1000
+        self.episode_length = 2000
 
         observation = self.get_obs() 
         return observation, None
@@ -91,7 +92,7 @@ class PNDEnv(Env):
         
         reward = max(self._current_age) - n_txtrial * POWERCOEFF 
 
-        done = False
+        done = (self.episode_length == 0)
         observation = self.get_obs()
 
         return observation, reward, False, done, None

@@ -21,10 +21,31 @@ from environment import *
 
 
 # Q_network
-class Q_net(nn.Module):
-    def __init__(self, state_space=None,
-                 action_space=None):
-        super(Q_net, self).__init__()
+class DRQN(nn.Module):
+    """
+    DRQN class represents the deep Q-network model for reinforcement learning.
+
+    Args:
+        state_space (int): The size of the state space.
+        action_space (int): The size of the action space.
+
+    Attributes:
+        hidden_space (int): The size of the hidden space.
+        state_space (int): The size of the state space.
+        action_space (int): The size of the action space.
+        Linear1 (nn.Linear): The first linear layer.
+        lstm (nn.LSTM): The LSTM layer.
+        Linear2 (nn.Linear): The second linear layer.
+
+    Methods:
+        forward(x, h, c): Performs forward pass through the network.
+        sample_action(obs, h, c, epsilon): Samples an action based on the current observation and epsilon-greedy policy.
+        init_hidden_state(batch_size, training): Initializes the hidden state of the LSTM.
+
+    """
+
+    def __init__(self, state_space=None, action_space=None):
+        super(DRQN, self).__init__()
 
         # space size check
         assert state_space is not None, "None state_space input: state_space should be selected."
@@ -35,26 +56,69 @@ class Q_net(nn.Module):
         self.action_space = action_space
 
         self.Linear1 = nn.Linear(self.state_space, self.hidden_space)
-        self.lstm    = nn.LSTM(self.hidden_space,self.hidden_space, batch_first=True)
+        self.lstm = nn.LSTM(self.hidden_space, self.hidden_space, batch_first=True)
         self.Linear2 = nn.Linear(self.hidden_space, self.action_space)
 
     def forward(self, x, h, c):
+        """
+        Performs forward pass through the network.
+
+        Args:
+            x (torch.Tensor): The input tensor.
+            h (torch.Tensor): The previous hidden state of the LSTM.
+            c (torch.Tensor): The previous cell state of the LSTM.
+
+        Returns:
+            torch.Tensor: The output tensor.
+            torch.Tensor: The new hidden state of the LSTM.
+            torch.Tensor: The new cell state of the LSTM.
+
+        """
         x = F.relu(self.Linear1(x))
-        x, (new_h, new_c) = self.lstm(x,(h,c))
+        x, (new_h, new_c) = self.lstm(x, (h, c))
         x = self.Linear2(x)
         return x, new_h, new_c
 
-    def sample_action(self, obs, h,c, epsilon):
-        output = self.forward(obs, h,c)
+    def sample_action(self, obs, h, c, epsilon):
+        """
+        Samples an action based on the current observation and epsilon-greedy policy.
+
+        Args:
+            obs (torch.Tensor): The current observation.
+            h (torch.Tensor): The previous hidden state of the LSTM.
+            c (torch.Tensor): The previous cell state of the LSTM.
+            epsilon (float): The exploration rate.
+
+        Returns:
+            int: The sampled action.
+            torch.Tensor: The new hidden state of the LSTM.
+            torch.Tensor: The new cell state of the LSTM.
+
+        """
+        output = self.forward(obs, h, c)
 
         if random.random() < epsilon:
-            return random.randint(0,1), output[1], output[2]
+            return random.randint(0, 1), output[1], output[2]
         else:
-            return output[0].argmax().item(), output[1] , output[2]
-    
-    def init_hidden_state(self, batch_size, training=None):
+            return output[0].argmax().item(), output[1], output[2]
 
-        assert training is not None, "training step parameter should be dtermined"
+    def init_hidden_state(self, batch_size, training=None):
+        """
+        Initializes the hidden state of the LSTM.
+
+        Args:
+            batch_size (int): The batch size.
+            training (bool): Indicates whether it is a training step or not.
+
+        Returns:
+            torch.Tensor: The initial hidden state of the LSTM.
+            torch.Tensor: The initial cell state of the LSTM.
+
+        Raises:
+            AssertionError: If the training parameter is not specified.
+
+        """
+        assert training is not None, "training step parameter should be determined"
 
         if training is True:
             return torch.zeros([1, batch_size, self.hidden_space]), torch.zeros([1, batch_size, self.hidden_space])
@@ -222,143 +286,140 @@ def seed_torch(seed):
 
 def save_model(model, path='default.pth'):
         torch.save(model.state_dict(), path)
-        
-if __name__ == "__main__":
 
-    # Env parameters
-    model_name = "DRQN_POMDP_Random"
-    env_name = "CartPole-v1"
-    seed = 1
-    exp_num = 'SEED'+'_'+str(seed)
+# Number of Nodes param
+n_nodes = 10
 
-    # Set gym environment
-    # env = gym.make(env_name)
-    env = PNDEnv(n=10, model="dumbbell")
-    env.reset()
+# Set parameters
+batch_size = 8
+learning_rate = 1e-3
+buffer_len = int(100000)
+min_epi_num = 20 # Start moment to train the Q network
+episodes = 650
+print_per_iter = 20
+target_update_period = 4
+eps_start = 0.1
+eps_end = 0.001
+eps_decay = 0.995
+tau = 1e-2
+max_step = 200
 
-    if torch.cuda.is_available():
-        device = torch.device("cuda")
-    else:
-        device = torch.device("cpu")
+# DRQN param
+random_update = True# If you want to do random update instead of sequential update
+lookup_step = 20 # If you want to do random update instead of sequential update
+max_epi_len = 100 
+max_epi_step = max_step
 
-    # Set the seed
-    np.random.seed(seed)
-    random.seed(seed)
-    seed_torch(seed)
-    # env.seed(seed)
+# Env parameters
+model_name = "DRQN_POMDP_Random"
+env_name = "CartPole-v1"
+seed = 1
+exp_num = 'SEED'+'_'+str(seed)
 
-    # default `log_dir` is "runs" - we'll be more specific here
-    writer = SummaryWriter('runs/'+env_name+"_"+model_name+"_"+exp_num)
+# Set gym environment
+# env = gym.make(env_name)
+env = PNDEnv(n=n_nodes, max_epi=max_epi_step, model="dumbbell")
+env.reset()
 
-    # Set parameters
-    batch_size = 8
-    learning_rate = 1e-3
-    buffer_len = int(100000)
-    min_epi_num = 20 # Start moment to train the Q network
-    episodes = 650
-    print_per_iter = 20
-    target_update_period = 4
-    eps_start = 0.1
-    eps_end = 0.001
-    eps_decay = 0.995
-    tau = 1e-2
-    max_step = 2000
+if torch.cuda.is_available():
+    device = torch.device("cuda")
+else:
+    device = torch.device("cpu")
 
-    # DRQN param
-    random_update = True# If you want to do random update instead of sequential update
-    lookup_step = 20 # If you want to do random update instead of sequential update
-    max_epi_len = 100 
-    max_epi_step = max_step
+# Set the seed
+np.random.seed(seed)
+random.seed(seed)
+seed_torch(seed)
+# env.seed(seed)
 
+# default `log_dir` is "runs" - we'll be more specific here
+writer = SummaryWriter()
+# writer = SummaryWriter('runs/'+env_name+"_"+model_name+"_"+exp_num)
+
+
+
+# Create Q functions
+# "-2" should be considered.
+Q_cum = [DRQN(state_space=2, action_space=2).to(device) for _ in range(n_nodes)]
+Q_target_cum = [DRQN(state_space=2, action_space=2).to(device) for _ in range(n_nodes)]
+[Q_target_cum[i].load_state_dict(Q_cum[i].state_dict()) for i in range(n_nodes)]
+# Q = DRQN(state_space=2, 
+#           action_space=2).to(device)
+# Q_target = DRQN(state_space=2, 
+#                  action_space=2).to(device)
+# Q_target.load_state_dict(Q.state_dict())
+
+# Set optimizer
+score = 0
+score_sum = 0
+optimizer_cum = [optim.Adam(Q_cum[i].parameters(), lr=learning_rate) for i in range(n_nodes)]
+# optimizer = optim.Adam(Q.parameters(), lr=learning_rate)
+
+epsilon = eps_start
+
+episode_memory = [EpisodeMemory(random_update=random_update, max_epi_num=100, max_epi_len=600, batch_size=batch_size, lookup_step=lookup_step) for _ in range(n_nodes)]
+# EpisodeMemory(random_update=random_update, max_epi_num=100, max_epi_len=600, batch_size=batch_size, lookup_step=lookup_step)
+
+# Train
+for i_epi in range(episodes):
+    s, _ = env.reset()
+    obs_cum = [s[np.array([x, x+n_nodes])] for x in range(n_nodes)]
+    # obs = s[np.array([0, n_nodes])] # Use only Position of Cart and Pole, # "-2" should be considered.
+    done = False
     
+    episode_record_cum = [EpisodeBuffer() for _ in range(n_nodes)]
+    # episode_record = EpisodeBuffer()
+    h_cum, c_cum = zip(*[Q_cum[i].init_hidden_state(batch_size=batch_size, training=False) for i in range(n_nodes)])
+    # h, c = Q.init_hidden_state(batch_size=batch_size, training=False)
 
-    # Create Q functions
-    # "-2" should be considered.
-    Q_cum = [Q_net(state_space=2, action_space=2).to(device) for _ in range(10)]
-    Q_target_cum = [Q_net(state_space=2, action_space=2).to(device) for _ in range(10)]
-    for i in range(10):
-        Q_target_cum[i].load_state_dict(Q_cum[i].state_dict())
-    # Q = Q_net(state_space=2, 
-    #           action_space=2).to(device)
-    # Q_target = Q_net(state_space=2, 
-    #                  action_space=2).to(device)
-    # Q_target.load_state_dict(Q.state_dict())
+    for t in range(max_step):
+        # Get action
+        a_cum, h_cum, c_cum = zip(*[Q_cum[i].sample_action(torch.from_numpy(obs_cum[i]).float().to(device).unsqueeze(0).unsqueeze(0),
+                                                            h_cum[i].to(device), c_cum[i].to(device),
+                                                            epsilon) for i in range(n_nodes)])
+        a = np.array(a_cum)
+        # Do action
+        s_prime, r, done, _, _ = env.step(a)
+        # obs_prime = s_prime # "-2" should be considered.
+        obs_prime_cum = [s_prime[np.array([x, x+n_nodes])] for x in range(n_nodes)]
 
-    # Set optimizer
-    score = 0
-    score_sum = 0
-    optimizer_cum = [optim.Adam(Q_cum[i].parameters(), lr=learning_rate) for i in range(10)]
-    # optimizer = optim.Adam(Q.parameters(), lr=learning_rate)
+        # make data
+        done_mask = 0.0 if done else 1.0
 
-    epsilon = eps_start
-    
-    episode_memory = EpisodeMemory(random_update=random_update, 
-                                   max_epi_num=100, max_epi_len=600, 
-                                   batch_size=batch_size, 
-                                   lookup_step=lookup_step)
+        for i_n in range(n_nodes):
+            episode_record_cum[i_n].put([obs_cum[i_n], a[i_n], r/100.0, obs_prime_cum[i_n], done_mask])
+        # episode_record.put([obs, a, r/100.0, obs_prime, done_mask])
 
-    # Train
-    for i in range(episodes):
-        s, _ = env.reset()
-        obs_cum = [s[np.array([x, x+10])] for x in range(10)]
-        # obs = s[np.array([0, 10])] # Use only Position of Cart and Pole, # "-2" should be considered.
-        done = False
+        obs_cum = obs_prime_cum
         
-        episode_record_cum = [EpisodeBuffer() for _ in range(10)]
-        # episode_record = EpisodeBuffer()
-        h_cum, c_cum = zip(*[Q_cum[i].init_hidden_state(batch_size=batch_size, training=False) for i in range(10)])
-        # h, c = Q.init_hidden_state(batch_size=batch_size, training=False)
+        score = r
+        score_sum += r
 
-        for t in range(max_step):
-            # Get action
-            a_cum, h_cum, c_cum = zip(*[Q_cum[i].sample_action(torch.from_numpy(obs_cum[i]).float().to(device).unsqueeze(0).unsqueeze(0),
-                                                               h_cum[i].to(device), c_cum[i].to(device),
-                                                               epsilon) for i in range(10)])
-            a = np.array(a_cum)
-            # Do action
-            s_prime, r, done, _, _ = env.step(a)
-            # obs_prime = s_prime # "-2" should be considered.
-            obs_prime_cum = [s_prime[np.array([x, x+10])] for x in range(10)]
-
-            # make data
-            done_mask = 0.0 if done else 1.0
-
-            for i in range(10):
-                episode_record_cum[i].put([obs_cum[i], a[i], r/100.0, obs_prime_cum[i][np.array([i, i+10])], done_mask])
-            # episode_record.put([obs, a, r/100.0, obs_prime, done_mask])
-
-            obs_cum = obs_prime_cum
-            
-            score = r
-            score_sum += r
-
-            if len(episode_memory) >= min_epi_num:
-                for i in range(10):
-                    train(Q_cum[i], Q_target_cum[i], episode_memory, device, optimizer=optimizer_cum[i], batch_size=batch_size, learning_rate=learning_rate)
-                
-                train(Q, Q_target, episode_memory, device, optimizer=optimizer, batch_size=batch_size, learning_rate=learning_rate)
+        for i_m in range(n_nodes):
+            if len(episode_memory[i_m]) >= min_epi_num:
+                train(Q_cum[i_m], Q_target_cum[i_m], episode_memory[i_m], device, optimizer=optimizer_cum[i_m], batch_size=batch_size, learning_rate=learning_rate)
 
                 if (t+1) % target_update_period == 0:
-                    # Q_target.load_state_dict(Q.state_dict()) <- navie update
-                    for target_param, local_param in zip(Q_target.parameters(), Q.parameters()): # <- soft update
+                    # Q_target.load_state_dict(Q.state_dict()) <- naive update
+                    for target_param, local_param in zip(Q_target_cum[i_m].parameters(), Q_cum[i_m].parameters()): # <- soft update
                             target_param.data.copy_(tau*local_param.data + (1.0 - tau)*target_param.data)
-                
-            if done:
-                break
-        
-        episode_memory.put(episode_record)
-        
-        epsilon = max(eps_end, epsilon * eps_decay) #Linear annealing
+            
+        if done:
+            break
+    
+    for i_j in range(n_nodes):
+        episode_memory[i_j].put(episode_record_cum[i_j])
+    
+    epsilon = max(eps_end, epsilon * eps_decay) # Linear annealing
 
-        if i % print_per_iter == 0 and i!=0:
-            print("n_episode :{}, score : {:.1f}, n_buffer : {}, eps : {:.1f}%".format(
-                                                            i, score_sum/print_per_iter, len(episode_memory), epsilon*100))
-            score_sum=0.0
-            save_model(Q, model_name+"_"+exp_num+'.pth')
+    if i_epi % print_per_iter == 0 and i_epi!=0:
+        print(f"n_episode: {i_epi}, score: {score_sum/print_per_iter}, n_buffer: {len(episode_memory)}, eps: {epsilon*100}%")
+        score_sum=0.0
+        save_model(Q_cum[0], model_name+"_"+exp_num+'.pth')
 
-        # Log the reward
-        writer.add_scalar('Rewards per episodes', score, i)
-        score = 0
-        
-    writer.close()
-    env.close()
+    # Log the reward
+    writer.add_scalar('Rewards per episodes', score_sum, i_epi)
+    score = 0
+    
+writer.close()
+env.close()

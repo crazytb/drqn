@@ -68,11 +68,11 @@ class PNDEnv(Env):
     def reset(self, seed=None):
         super().reset(seed=seed)
         # State reset
-        self._current_age = np.zeros((self.n, 1))
-        self._prev_result = np.zeros((self.n, 1))
+        self._current_age = np.zeros(self.n)
+        self._prev_result = np.zeros(self.n)
         self.adjacency_matrix = self.make_adjacency_matrix()  # Adjacency matrix
         self.where_packet_is_from = np.array([None]*self.n)
-        self.episode_length = 2000
+        self.episode_length = 300
 
         observation = self.get_obs() 
         return observation, None
@@ -86,23 +86,23 @@ class PNDEnv(Env):
         self._prev_result = action
 
         action_tiled = np.tile(action.reshape(-1, 1), (1, self.n))
-        tx_to_where = np.multiply(self.adjacency_matrix, action_tiled)
+        txrx_matrix = np.multiply(self.adjacency_matrix, action_tiled)
 
         for i in np.where(action==1)[0]:
-            tx_to_where[:, i] = 0
+            txrx_matrix[:, i] = 0
 
-        collided_index = np.sum(tx_to_where, axis=0)>1
-        tx_to_where[:, collided_index] = 0
+        collided_index = np.sum(txrx_matrix, axis=0)>1
+        txrx_matrix[:, collided_index] = 0
 
         n_txtrial = np.count_nonzero(action)
-        idx_success = np.where(np.sum(tx_to_where, axis=1)==1)[0]
+        idx_success = np.where(np.sum(txrx_matrix, axis=1)!=0)[0]
 
-        self._current_age += 1/self.episode_length
+        self._current_age += 1/self.max_episode_length
         self._current_age = np.clip(self._current_age, 0, 1)
         self._current_age[idx_success] = 0
         self.episode_length -= 1
         
-        reward = -1*(max(self._current_age) + n_txtrial * POWERCOEFF)
+        reward = n_txtrial/self.max_episode_length - max(self._current_age) # 보낸 갯수만큼 보상을 준다.
 
         done = (self.episode_length == 0)
         observation = self.get_obs()
@@ -172,6 +172,9 @@ class PNDEnv(Env):
         nx.draw_networkx(G, pos=pos, with_labels=True)
         plt.savefig(path + '/adj_graph.png')
         
+    def get_current_age(self):
+        return self._current_age
+        
 
 # Q_network
 class DRQN(nn.Module):
@@ -204,7 +207,7 @@ class DRQN(nn.Module):
         assert state_space is not None, "None state_space input: state_space should be selected."
         assert action_space is not None, "None action_space input: action_space should be selected."
 
-        self.hidden_space = 16
+        self.hidden_space = 4
         self.state_space = state_space
         self.action_space = action_space
 
@@ -277,6 +280,7 @@ class DRQN(nn.Module):
             return torch.zeros([1, batch_size, self.hidden_space]), torch.zeros([1, batch_size, self.hidden_space])
         else:
             return torch.zeros([1, 1, self.hidden_space]), torch.zeros([1, 1, self.hidden_space])
+
 
 class EpisodeMemory():
     """Episode memory for recurrent agent"""

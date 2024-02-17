@@ -28,9 +28,8 @@ batch_size = 8
 learning_rate = 1e-3
 buffer_len = int(100000)
 min_epi_num = 20 # Start moment to train the Q network
-episodes = 650
-print_per_iter = 20
-target_update_period = 4
+episodes = 500
+target_update_period = 10
 eps_start = 0.1
 eps_end = 0.001
 eps_decay = 0.995
@@ -39,12 +38,11 @@ tau = 1e-2
 # DRQN param
 random_update = True    # If you want to do random update instead of sequential update
 lookup_step = 20        # If you want to do random update instead of sequential update
-max_epi_len = 100 
 
 # Number of envs param
 n_nodes = 10
 density = 0.5
-max_step = 1000
+max_step = 300
 model = "dumbbell"
 
 # Set gym environment
@@ -96,6 +94,9 @@ epsilon = eps_start
 episode_memory = [EpisodeMemory(random_update=random_update, max_epi_num=100, max_epi_len=600, batch_size=batch_size, lookup_step=lookup_step) for _ in range(n_nodes)]
 # EpisodeMemory(random_update=random_update, max_epi_num=100, max_epi_len=600, batch_size=batch_size, lookup_step=lookup_step)
 
+df = pd.DataFrame(columns=['episode', 'time'] + [f'action_{i}' for i in range(n_nodes)] + [f'age_{i}' for i in range(n_nodes)])
+appended_df = []
+
 # Train
 for i_epi in range(episodes):
     s, _ = env.reset()
@@ -124,7 +125,6 @@ for i_epi in range(episodes):
 
         for i_n in range(n_nodes):
             episode_record_cum[i_n].put([obs_cum[i_n], a[i_n], r/100.0, obs_prime_cum[i_n], done_mask])
-        # episode_record.put([obs, a, r/100.0, obs_prime, done_mask])
 
         obs_cum = obs_prime_cum
         
@@ -139,7 +139,14 @@ for i_epi in range(episodes):
                     # Q_target.load_state_dict(Q.state_dict()) <- naive update
                     for target_param, local_param in zip(Q_target_cum[i_m].parameters(), Q_cum[i_m].parameters()): # <- soft update
                             target_param.data.copy_(tau*local_param.data + (1.0 - tau)*target_param.data)
-            
+        
+        df_currepoch = pd.DataFrame(data=[[i_epi, t, *a, *env.get_current_age()]],
+                                    columns=['episode', 'time'] + [f'action_{i}' for i in range(n_nodes)] + [f'age_{i}' for i in range(n_nodes)])
+        appended_df.append(df_currepoch)
+        # df = pd.concat([df, df_currepoch], ignore_index=True)
+        # df_currepoch = pd.DataFrame(data=[[i_epi, t, action.item(), env.leftbuffers, env.consumed_energy]],
+        #                             columns=['epoch', 'action', 'left_buffer', 'consumed_energy'])
+        
         if done:
             break
     
@@ -147,15 +154,19 @@ for i_epi in range(episodes):
         episode_memory[i_j].put(episode_record_cum[i_j])
     
     epsilon = max(eps_end, epsilon * eps_decay) # Linear annealing
-
-    if i_epi % print_per_iter == 0 and i_epi!=0:
-        print(f"n_episode: {i_epi}, score: {score_sum/print_per_iter}, n_buffer: {len(episode_memory)}, eps: {epsilon*100}%")
-        score_sum=0.0
-        save_model(Q_cum[0], model_name+"_"+exp_num+'.pth')
-
+    
+    print(f"n_episode: {i_epi}, score: {score_sum}, n_buffer: {len(episode_memory)}, eps: {epsilon*100}%")
+        
     # Log the reward
     writer.add_scalar('Rewards per episodes', score_sum, i_epi)
     score = 0
+    score_sum = 0.0
+    
+for i in range(n_nodes):
+    torch.save(Q_cum[i].state_dict(), output_path + f"/Q_cum_{i}.pth")
+    
+df = pd.concat(appended_df, ignore_index=True)
+df.to_csv(output_path + "/log.csv", index=False)
     
 writer.close()
 env.close()

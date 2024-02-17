@@ -94,15 +94,17 @@ class PNDEnv(Env):
         collided_index = np.sum(txrx_matrix, axis=0)>1
         txrx_matrix[:, collided_index] = 0
 
-        n_txtrial = np.count_nonzero(action)
+        # n_txtrial = np.count_nonzero(action)
         idx_success = np.where(np.sum(txrx_matrix, axis=1)!=0)[0]
+        n_txtrial = len(idx_success)
 
         self._current_age += 1/self.max_episode_length
         self._current_age = np.clip(self._current_age, 0, 1)
         self._current_age[idx_success] = 0
         self.episode_length -= 1
         
-        reward = n_txtrial/self.max_episode_length - max(self._current_age) # 보낸 갯수만큼 보상을 준다.
+        # reward = n_txtrial/self.max_episode_length - max(self._current_age) # 보낸 갯수만큼 보상을 준다.
+        reward = n_txtrial # 보낸 갯수만큼 보상을 준다.
 
         done = (self.episode_length == 0)
         observation = self.get_obs()

@@ -85,17 +85,14 @@ env.save_graph_with_labels(output_path)
 
 # Create Q functions
 n_states = 2
-n_actions = 1
+n_actions = 2
 
-Q_cum = [Policy(state_space=n_states, action_space=n_actions).to(device) for _ in range(n_agents)]
-Q_target_cum = [Policy(state_space=n_states, action_space=n_actions).to(device) for _ in range(n_agents)]
-[Q_target_cum[i].load_state_dict(Q_cum[i].state_dict()) for i in range(n_agents)]
-
+Policy_cum = [Policy(state_space=n_states, action_space=n_actions).to(device) for _ in range(n_agents)]
 
 # Set optimizer
 score = 0
 score_sum = 0
-optimizer_cum = [optim.Adam(Q_cum[i].parameters(), lr=learning_rate) for i in range(n_agents)]
+optimizer_cum = [optim.Adam(Policy_cum[i].parameters(), lr=learning_rate) for i in range(n_agents)]
 
 
 epsilon = eps_start
@@ -115,12 +112,12 @@ for i_epi in tqdm(range(episodes), desc="Episodes", position=0, leave=True):
     
     episode_record_cum = [EpisodeBuffer() for _ in range(n_agents)]
     # episode_record = EpisodeBuffer()
-    h_cum, c_cum = zip(*[Q_cum[i].init_hidden_state(batch_size=batch_size, training=False) for i in range(n_agents)])
+    h_cum, c_cum = zip(*[Policy_cum[i].init_hidden_state(batch_size=batch_size, training=False) for i in range(n_agents)])
     # h, c = Q.init_hidden_state(batch_size=batch_size, training=False)
 
     for t in tqdm(range(max_step), desc="   Steps", position=1, leave=False):
         # Get action
-        a_cum, h_cum, c_cum = zip(*[Q_cum[i].sample_action(torch.from_numpy(obs_cum[i]).float().to(device).unsqueeze(0).unsqueeze(0),
+        a_cum, h_cum, c_cum = zip(*[Policy_cum[i].sample_action(torch.from_numpy(obs_cum[i]).float().to(device).unsqueeze(0).unsqueeze(0),
                                                             h_cum[i].to(device), c_cum[i].to(device),
                                                             epsilon) for i in range(n_agents)])
         a = np.array(a_cum)
@@ -142,13 +139,8 @@ for i_epi in tqdm(range(episodes), desc="Episodes", position=0, leave=True):
 
         for i_m in range(n_agents):
             if len(episode_memory[i_m]) >= min_epi_num:
-                train(Q_cum[i_m], Q_target_cum[i_m], episode_memory[i_m], device, optimizer=optimizer_cum[i_m], batch_size=batch_size, learning_rate=learning_rate)
+                train(Policy_cum[i_m], Policy_target_cum[i_m], episode_memory[i_m], device, optimizer=optimizer_cum[i_m], batch_size=batch_size, learning_rate=learning_rate)
 
-                if (t+1) % target_update_period == 0:
-                    # Q_target.load_state_dict(Q.state_dict()) <- naive update
-                    for target_param, local_param in zip(Q_target_cum[i_m].parameters(), Q_cum[i_m].parameters()): # <- soft update
-                            target_param.data.copy_(tau*local_param.data + (1.0 - tau)*target_param.data)
-        
         df_currepoch = pd.DataFrame(data=[[i_epi, t, *a, *env.get_current_age()]],
                                     columns=['episode', 'time'] + [f'action_{i}' for i in range(n_agents)] + [f'age_{i}' for i in range(n_agents)])
         appended_df.append(df_currepoch)
@@ -172,7 +164,7 @@ for i_epi in tqdm(range(episodes), desc="Episodes", position=0, leave=True):
     score_sum = 0.0
     
 for i in range(n_agents):
-    torch.save(Q_cum[i].state_dict(), output_path + f"/Q_cum_{i}.pth")
+    torch.save(Policy_cum[i].state_dict(), output_path + f"/Q_cum_{i}.pth")
     
 df = pd.concat(appended_df, ignore_index=True)
 # Save the log with timestamp

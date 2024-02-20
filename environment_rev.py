@@ -235,7 +235,7 @@ class Policy(nn.Module):
         """
         x = F.relu(self.linear1(x))
         x, (new_h, new_c) = self.lstm(x, (h, c))
-        x = F.softmax(self.linear2(x), dim=0)
+        x = F.softmax(self.linear2(x), dim=2)
         return x, new_h, new_c
 
     def sample_action(self, obs, h, c, epsilon):
@@ -255,11 +255,14 @@ class Policy(nn.Module):
 
         """
         output = self.forward(obs, h, c)
+        action = torch.squeeze(output[0]).multinomial(num_samples=1)
 
-        if random.random() < epsilon:
-            return random.randint(0, 1), output[1], output[2]
-        else:
-            return output[0].argmax().item(), output[1], output[2]
+        return action.item(), output[1], output[2]
+    
+        # if random.random() < epsilon:
+        #     return random.randint(0, 1), output[1], output[2]
+        # else:
+        #     return output[0].argmax().item(), output[1], output[2]
 
     def init_hidden_state(self, batch_size, training=None):
         """
@@ -381,7 +384,7 @@ class EpisodeBuffer:
         return len(self.obs)
 
 
-def train(q_net=None, target_q_net=None, episode_memory=None,
+def train(q_net=None, episode_memory=None,
           device=None, 
           optimizer = None,
           batch_size=1,
@@ -417,14 +420,6 @@ def train(q_net=None, target_q_net=None, episode_memory=None,
     rewards = torch.FloatTensor(rewards.reshape(batch_size,seq_len,-1)).to(device)
     next_observations = torch.FloatTensor(next_observations.reshape(batch_size,seq_len,-1)).to(device)
     dones = torch.FloatTensor(dones.reshape(batch_size,seq_len,-1)).to(device)
-
-    h_target, c_target = target_q_net.init_hidden_state(batch_size=batch_size, training=True)
-
-    q_target, _, _ = target_q_net(next_observations, h_target.to(device), c_target.to(device))
-
-    q_target_max = q_target.max(2)[0].view(batch_size,seq_len,-1).detach()
-    targets = rewards + gamma*q_target_max*dones
-
 
     h, c = q_net.init_hidden_state(batch_size=batch_size, training=True)
     q_out, _, _ = q_net(observations, h.to(device), c.to(device))

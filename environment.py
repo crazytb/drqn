@@ -25,6 +25,7 @@ else:
 
 # Parameters
 POWERCOEFF = 0.1
+AGECOEFF = 1
 
 class PNDEnv(Env):
     def __init__(self, **kwargs):
@@ -104,7 +105,7 @@ class PNDEnv(Env):
         self.episode_length -= 1
         
         # reward = n_txtrial/self.max_episode_length - max(self._current_age) # 보낸 갯수만큼 보상을 준다.
-        reward = n_txtrial # 보낸 갯수만큼 보상을 준다.
+        reward = n_txtrial - AGECOEFF*max(self._current_age) # 보낸 갯수만큼 보상을 준다.
 
         done = (self.episode_length == 0)
         observation = self.get_obs()

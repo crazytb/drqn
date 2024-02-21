@@ -17,7 +17,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
-from environment_rev import *
+from environment import *
 
 
 if torch.cuda.is_available():

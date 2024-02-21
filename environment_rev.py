@@ -210,6 +210,8 @@ class Policy(nn.Module):
         assert state_space is not None, "None state_space input: state_space should be selected."
         assert action_space is not None, "None action_space input: action_space should be selected."
 
+        self.data = []
+        
         self.hidden_space = 4
         self.state_space = state_space
         self.action_space = action_space
@@ -238,7 +240,10 @@ class Policy(nn.Module):
         x = F.softmax(self.linear2(x), dim=2)
         return x, new_h, new_c
 
-    def sample_action(self, obs, h, c, epsilon):
+    def put_data(self, transition):
+        self.data.append(transition)
+    
+    def sample_action(self, obs, h, c):
         """
         Samples an action based on the current observation and epsilon-greedy policy.
 
@@ -258,11 +263,6 @@ class Policy(nn.Module):
         action = torch.squeeze(output[0]).multinomial(num_samples=1)
 
         return action.item(), output[1], output[2]
-    
-        # if random.random() < epsilon:
-        #     return random.randint(0, 1), output[1], output[2]
-        # else:
-        #     return output[0].argmax().item(), output[1], output[2]
 
     def init_hidden_state(self, batch_size, training=None):
         """
@@ -384,7 +384,8 @@ class EpisodeBuffer:
         return len(self.obs)
 
 
-def train(q_net=None, episode_memory=None,
+def train(pi=None, 
+          episode_memory=None,
           device=None, 
           optimizer = None,
           batch_size=1,
@@ -421,16 +422,17 @@ def train(q_net=None, episode_memory=None,
     next_observations = torch.FloatTensor(next_observations.reshape(batch_size,seq_len,-1)).to(device)
     dones = torch.FloatTensor(dones.reshape(batch_size,seq_len,-1)).to(device)
 
-    h, c = q_net.init_hidden_state(batch_size=batch_size, training=True)
-    q_out, _, _ = q_net(observations, h.to(device), c.to(device))
+    h, c = pi.init_hidden_state(batch_size=batch_size, training=True)
+    q_out, _, _ = pi(observations, h.to(device), c.to(device))
     q_a = q_out.gather(2, actions)
 
-    # Multiply Importance Sampling weights to loss        
-    loss = F.smooth_l1_loss(q_a, targets)
-    
     # Update Network
+    R = 0
     optimizer.zero_grad()
-    loss.backward()
+    for r, prob in zip(reversed(rewards), reversed(q_a)):
+        R = r + gamma * R
+        loss = -torch.log(prob) * R
+        loss.mean().backward(retain_graph=True)
     optimizer.step()
 
 def seed_torch(seed):

@@ -31,7 +31,7 @@ else:
 batch_size = 8
 learning_rate = 1e-3
 buffer_len = int(100000)
-min_epi_num = 20 # Start moment to train the Q network
+min_epi_num = 10 # Start moment to train the Q network
 episodes = 500
 target_update_period = 10
 eps_start = 0.1
@@ -48,7 +48,7 @@ n_nodes = 10
 n_agents = 10
 density = 1
 max_step = 300
-model = None
+model = "dumbbell"
 
 # Set gym environment
 env_params = {
@@ -118,8 +118,7 @@ for i_epi in tqdm(range(episodes), desc="Episodes", position=0, leave=True):
     for t in tqdm(range(max_step), desc="   Steps", position=1, leave=False):
         # Get action
         a_cum, h_cum, c_cum = zip(*[Policy_cum[i].sample_action(torch.from_numpy(obs_cum[i]).float().to(device).unsqueeze(0).unsqueeze(0),
-                                                            h_cum[i].to(device), c_cum[i].to(device),
-                                                            epsilon) for i in range(n_agents)])
+                                                            h_cum[i].to(device), c_cum[i].to(device)) for i in range(n_agents)])
         a = np.array(a_cum)
         # Do action
         s_prime, r, done, _, _ = env.step(a)
@@ -139,7 +138,7 @@ for i_epi in tqdm(range(episodes), desc="Episodes", position=0, leave=True):
 
         for i_m in range(n_agents):
             if len(episode_memory[i_m]) >= min_epi_num:
-                train(Policy_cum[i_m], Policy_target_cum[i_m], episode_memory[i_m], device, optimizer=optimizer_cum[i_m], batch_size=batch_size, learning_rate=learning_rate)
+                train(Policy_cum[i_m], episode_memory[i_m], device, optimizer=optimizer_cum[i_m], batch_size=batch_size, learning_rate=learning_rate)
 
         df_currepoch = pd.DataFrame(data=[[i_epi, t, *a, *env.get_current_age()]],
                                     columns=['episode', 'time'] + [f'action_{i}' for i in range(n_agents)] + [f'age_{i}' for i in range(n_agents)])

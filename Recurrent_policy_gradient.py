@@ -92,7 +92,7 @@ n_nodes = 10
 n_agents = 10
 density = 1
 max_step = 300
-model = "dumbbell"
+model = None
 
 # Set gym environment
 env_params = {

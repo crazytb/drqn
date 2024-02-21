@@ -109,7 +109,7 @@ else:
 env = PNDEnv(**env_params)
 env.reset()
 
-output_path = 'outputs/DRQN_'+env_params_str
+output_path = 'outputs/R2inforce_'+env_params_str
 writer = SummaryWriter(filename_suffix=env_params_str)
 if not os.path.exists(output_path):
     os.makedirs(output_path)
@@ -122,8 +122,6 @@ n_actions = 2
 pi_cum = [Policy(state_space=n_states, action_space=n_actions).to(device) for _ in range(n_agents)]
 
 # Set optimizer
-score = 0
-score_sum = 0
 optimizer_cum = [optim.Adam(pi_cum[i].parameters(), lr=learning_rate) for i in range(n_agents)]
 
 epsilon = eps_start
@@ -133,6 +131,7 @@ appended_df = []
 
 for i_epi in tqdm(range(episodes), desc="Episodes", position=0, leave=True):
     s, _ = env.reset()
+    score = 0.0
     obs_cum = [s[np.array([x, x+n_agents])] for x in range(n_agents)]
     h_cum, c_cum = zip(*[pi_cum[i].init_hidden_state() for i in range(n_agents)])
     done = False
@@ -149,6 +148,10 @@ for i_epi in tqdm(range(episodes), desc="Episodes", position=0, leave=True):
         obs_cum = [s_prime[np.array([x, x+n_agents])] for x in range(n_agents)]
         score += r
         
+        df_currepoch = pd.DataFrame(data=[[i_epi, t, *a_cum, *env.get_current_age()]],
+                                    columns=['episode', 'time'] + [f'action_{i}' for i in range(n_agents)] + [f'age_{i}' for i in range(n_agents)])
+        appended_df.append(df_currepoch)
+        
         if done:
             break
 
@@ -159,4 +162,8 @@ for i_epi in tqdm(range(episodes), desc="Episodes", position=0, leave=True):
     writer.add_scalar('Rewards per episodes', score, i_epi)
     score = 0
 
+df = pd.concat(appended_df, ignore_index=True)
+current_time = datetime.now().strftime("%b%d_%H-%M-%S")
+df.to_csv(output_path + f"/log_{current_time}.csv", index=False)
+writer.close()
 env.close()

@@ -91,7 +91,6 @@ Policy_cum = [Policy(state_space=n_states, action_space=n_actions).to(device) fo
 
 # Set optimizer
 score = 0
-score_sum = 0
 optimizer_cum = [optim.Adam(Policy_cum[i].parameters(), lr=learning_rate) for i in range(n_agents)]
 
 
@@ -106,6 +105,7 @@ appended_df = []
 # Train
 for i_epi in tqdm(range(episodes), desc="Episodes", position=0, leave=True):
     s, _ = env.reset()
+    score = 0.0
     obs_cum = [s[np.array([x, x+n_agents])] for x in range(n_agents)]
     # obs = s[np.array([0, n_agents])] # Use only Position of Cart and Pole, # "-2" should be considered.
     done = False
@@ -133,8 +133,7 @@ for i_epi in tqdm(range(episodes), desc="Episodes", position=0, leave=True):
 
         obs_cum = obs_prime_cum
         
-        score = r
-        score_sum += r
+        score += r
 
         for i_m in range(n_agents):
             if len(episode_memory[i_m]) >= min_epi_num:
@@ -155,12 +154,11 @@ for i_epi in tqdm(range(episodes), desc="Episodes", position=0, leave=True):
     
     epsilon = max(eps_end, epsilon * eps_decay) # Linear annealing
     
-    print(f"n_episode: {i_epi}/{episodes}, score: {score_sum}, n_buffer: {len(episode_memory)}, eps: {epsilon*100}%")
+    print(f"n_episode: {i_epi}/{episodes}, score: {score}, n_buffer: {len(episode_memory)}, eps: {epsilon*100}%")
     
     # Log the reward
-    writer.add_scalar('Rewards per episodes', score_sum, i_epi)
-    score = 0
-    score_sum = 0.0
+    writer.add_scalar('Rewards per episodes', score, i_epi)
+
     
 for i in range(n_agents):
     torch.save(Policy_cum[i].state_dict(), output_path + f"/Q_cum_{i}.pth")

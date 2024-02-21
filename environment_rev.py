@@ -25,7 +25,7 @@ else:
 
 # Parameters
 POWERCOEFF = 0.1
-AGECOEFF = 1
+AGECOEFF = 0.1
 
 class PNDEnv(Env):
     def __init__(self, **kwargs):
@@ -80,7 +80,7 @@ class PNDEnv(Env):
 
     def step(self, action: np.array):  # 여기 해야 함.
         # Check if the action is valid. Action length must be equal to the number of nodes and action must be 0 or 1. 
-        reward = 0
+
         assert len(action) == len(self._prev_result), "Action length must be equal to the number of nodes."
         assert all([a in [0, 1] for a in action]), "Action must be 0 or 1."
         self.where_packet_is_from = np.array([None]*self.n)

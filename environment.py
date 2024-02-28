@@ -29,48 +29,55 @@ AGECOEFF = 1
 
 class PNDEnv(Env):
     def __init__(self, **kwargs):
-            """
-            Initialize the PNDEnv class.
+        """
+        Initialize the PNDEnv class.
 
-            Parameters:
-            - n (int): The number of nodes in the environment.
-            - density (float): The density of the environment.
-            - max_epi (int): The maximum number of episodes.
-            - model (str): The model to be used.
+        Parameters:
+        - n (int): The number of nodes in the environment.
+        - density (float): The density of the environment.
+        - max_epi (int): The maximum number of episodes.
+        - model (str): The model to be used.
 
-            Returns:
-            None
-            """
-            super(PNDEnv, self).__init__()
-            self.n = kwargs.get("n", 10)
-            self.density = kwargs.get("density", 0.5)
-            self.model = kwargs.get("model", None)
-            self.max_episode_length = kwargs.get("max_episode_length", 2000)
+        Returns:
+        None
+        """
+        super(PNDEnv, self).__init__()
+        self.n = kwargs.get("n", 10)
+        self.density = kwargs.get("density", 0.5)
+        self.model = kwargs.get("model", None)
+        self.max_episode_length = kwargs.get("max_episode_length", 2000)
 
-            # Actions we can take 0) transmit and 1) listen
-            self.action_space = MultiBinary(self.n)
-            # Observation space
-            self.observation_space = spaces.Dict({
-                "current_age": Box(low=0, high=1, shape=(self.n, 1)),
-                "prev_result": MultiBinary([self.n, 1]),
-                # 0: Listening, 1: Transmitting
-            })
+        # Actions we can take 0) transmit and 1) listen
+        self.action_space = MultiBinary(self.n)
+        # Observation space
+        self.observation_space = spaces.Dict({
+            "current_age": Box(low=0, high=1, shape=(self.n, 1)),
+            "prev_result": MultiBinary([self.n, 1]),    # 0: Listening, 1: Transmitting
+            "adj_result": MultiBinary([self.n, 1]),     # 0: Idle,      1: Busy
+            "done_within_epi": MultiBinary([self.n, 1])            # 0: Not done yet, 1: Done
+        })
 
     def get_obs(self):
         current_age = np.reshape(self._current_age, newshape=(self.n))
         prev_result = np.reshape(self._prev_result, newshape=(self.n))
-        return np.concatenate([current_age, prev_result])
+        adj_result = np.reshape(self._adj_result, newshape=(self.n))
+        done_within_epi = np.reshape(self._done_within_epi, newshape=(self.n))
+        return np.concatenate([current_age, prev_result, adj_result, done_within_epi])
     
     def get_info(self):
-        print("Current Age, Prev Result")
-        for i in range(self.n):
-            print(f"Node {i}: {self._current_age[i]}, {self._prev_result[i]}")
+        # print("Current Age, Prev Result")
+        # for i in range(self.n):
+        #     print(f"Node {i}: {self._current_age[i]}, {self._prev_result[i]}")
+        pass
         
     def reset(self, seed=None):
         super().reset(seed=seed)
         # State reset
         self._current_age = np.zeros(self.n)
         self._prev_result = np.zeros(self.n)
+        self._adj_result = np.zeros(self.n)
+        self._done_within_epi = np.zeros(self.n)
+        
         self.adjacency_matrix = self.make_adjacency_matrix()  # Adjacency matrix
         self.where_packet_is_from = np.array([None]*self.n)
         self.episode_length = 300
@@ -104,10 +111,10 @@ class PNDEnv(Env):
         self._current_age[idx_success] = 0
         self.episode_length -= 1
         
-        # reward = n_txtrial/self.max_episode_length - max(self._current_age) # 보낸 갯수만큼 보상을 준다.
-        reward = n_txtrial - AGECOEFF*max(self._current_age) # 보낸 갯수만큼 보상을 준다.
+        reward = -AGECOEFF*np.mean(self._current_age) # 
 
         done = (self.episode_length == 0)
+        
         observation = self.get_obs()
 
         return observation, reward, False, done, None

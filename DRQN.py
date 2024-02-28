@@ -58,11 +58,9 @@ env_params = {
     "model": model
     }
 if model == None:
-    env_params_str = f"n{n_nodes}_density{density}_max_episode_length{max_step}"
+    env_params_str = f"n{n_nodes}_density{density}_max_episode_length{episodes}"
 else:
-    env_params_str = f"n{n_nodes}_model{model}_max_episode_length{max_step}"
-    
-env_params_str += "full_network"
+    env_params_str = f"n{n_nodes}_model{model}_max_episode_length{episodes}"
 
 # Make env and reset it
 env = PNDEnv(**env_params)
@@ -182,3 +180,5 @@ df_lastepisodes.to_csv(output_path + f"/log_{current_time}.csv", index=False)
 
 writer.close()
 env.close()
+
+print(env_params_str)

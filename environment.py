@@ -79,7 +79,6 @@ class PNDEnv(Env):
         self._done_within_epi = np.zeros(self.n)
         
         self.adjacency_matrix = self.make_adjacency_matrix()  # Adjacency matrix
-        self.where_packet_is_from = np.array([None]*self.n)
         self.episode_length = 300
 
         observation = self.get_obs() 
@@ -90,25 +89,29 @@ class PNDEnv(Env):
         reward = 0
         assert len(action) == len(self._prev_result), "Action length must be equal to the number of nodes."
         assert all([a in [0, 1] for a in action]), "Action must be 0 or 1."
-        self.where_packet_is_from = np.array([None]*self.n)
+        
         self._prev_result = action
 
-        action_tiled = np.tile(action.reshape(-1, 1), (1, self.n))
-        txrx_matrix = np.multiply(self.adjacency_matrix, action_tiled)
+        action_tiled = np.tile(action.reshape(-1, 1), (1, self.n))  # Full mesh 가정, action_tiled[i, :] = action
+        txrx_matrix = np.multiply(self.adjacency_matrix, action_tiled)  # Adj만 고려한 txrx_matrix
 
-        for i in np.where(action==1)[0]:
+        for i in np.where(action==1)[0]:    # 전송 시도한 node는 수신할 수 없으므로 txrx_matrix[:, i]에서 0으로 바꿔줌
             txrx_matrix[:, i] = 0
 
+        self._adj_result[np.where(np.sum(txrx_matrix, axis=0)==0)[0]] = 0  # 주변 node가 모두 idle한 node는 idle
+        self._adj_result[np.where(np.sum(txrx_matrix, axis=0)>0)[0]] = 1  # 주변 node 중 하나라도 busy한 node는 busy
+        
         collided_index = np.sum(txrx_matrix, axis=0)>1
         txrx_matrix[:, collided_index] = 0
 
         # n_txtrial = np.count_nonzero(action)
         idx_success = np.where(np.sum(txrx_matrix, axis=1)!=0)[0]
-        n_txtrial = len(idx_success)
 
         self._current_age += 1/self.max_episode_length
         self._current_age = np.clip(self._current_age, 0, 1)
         self._current_age[idx_success] = 0
+        self._done_within_epi[idx_success] = 1
+        
         self.episode_length -= 1
         
         reward = -AGECOEFF*np.mean(self._current_age) # 
@@ -224,6 +227,10 @@ class DRQN(nn.Module):
         self.Linear1 = nn.Linear(self.state_space, self.hidden_space)
         self.lstm = nn.LSTM(self.hidden_space, self.hidden_space, batch_first=True)
         self.Linear2 = nn.Linear(self.hidden_space, self.action_space)
+        
+        nn.init.xavier_uniform_(self.Linear1.weight)
+        nn.init.xavier_uniform_(self.Linear2.weight)
+        
 
     def forward(self, x, h, c):
         """

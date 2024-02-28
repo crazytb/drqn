@@ -32,7 +32,7 @@ batch_size = 8
 learning_rate = 1e-3
 buffer_len = int(100000)
 min_epi_num = 20 # Start moment to train the Q network
-episodes = 10
+episodes = 100
 target_update_period = 10
 eps_start = 0.1
 eps_end = 0.001
@@ -48,7 +48,7 @@ n_nodes = 10
 n_agents = 10
 density = 1
 max_step = 300
-model = None
+model = "dumbbell"    # None, "dumbbell", "linear"
 
 # Set gym environment
 env_params = {

@@ -32,7 +32,7 @@ batch_size = 8
 learning_rate = 1e-3
 buffer_len = int(100000)
 min_epi_num = 20 # Start moment to train the Q network
-episodes = 500
+episodes = 10
 target_update_period = 10
 eps_start = 0.1
 eps_end = 0.001
@@ -177,7 +177,8 @@ for i in range(n_agents):
 df = pd.concat(appended_df, ignore_index=True)
 # Save the log with timestamp
 current_time = datetime.now().strftime("%b%d_%H-%M-%S")
-df.to_csv(output_path + f"/log_{current_time}.csv", index=False)
+df_lastepisodes = df[df['episode'] >= episodes-1]
+df_lastepisodes.to_csv(output_path + f"/log_{current_time}.csv", index=False)
 
 writer.close()
 env.close()

@@ -2,12 +2,7 @@
 # https://ropiens.tistory.com/80
 # % tensorboard --logdir=runs
 
-import sys
 import os
-from typing import Dict, List, Tuple
-import gymnasium as gym
-import collections
-import random
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
@@ -28,11 +23,11 @@ else:
     device = torch.device("cpu")
 
 # Set parameters
-batch_size = 8
+batch_size = 1
 learning_rate = 1e-3
 buffer_len = int(100000)
 min_epi_num = 20 # Start moment to train the Q network
-episodes = 100
+episodes = 500
 target_update_period = 10
 eps_start = 0.1
 eps_end = 0.001
@@ -44,23 +39,23 @@ random_update = True    # If you want to do random update instead of sequential 
 lookup_step = 20        # If you want to do random update instead of sequential update
 
 # Number of envs param
-n_nodes = 10
 n_agents = 10
 density = 1
 max_step = 300
-model = "dumbbell"    # None, "dumbbell", "linear"
+# None, "dumbbell", "linear"
+model = None
 
 # Set gym environment
 env_params = {
-    "n": n_nodes,
+    "n": n_agents,
     "density": density,
     "max_episode_length": max_step,
     "model": model
     }
 if model == None:
-    env_params_str = f"n{n_nodes}_density{density}_max_episode_length{episodes}"
+    env_params_str = f"n{n_agents}_density{density}_max_episode_length{episodes}"
 else:
-    env_params_str = f"n{n_nodes}_model{model}_max_episode_length{episodes}"
+    env_params_str = f"n{n_agents}_model{model}_max_episode_length{episodes}"
 
 # Make env and reset it
 env = PNDEnv(**env_params)
@@ -82,7 +77,7 @@ env.save_graph_with_labels(output_path)
 
 
 # Create Q functions
-n_states = 2
+n_states = 4
 n_actions = 2
 
 Q_cum = [DRQN(state_space=n_states, action_space=n_actions).to(device) for _ in range(n_agents)]
@@ -98,7 +93,7 @@ optimizer_cum = [optim.Adam(Q_cum[i].parameters(), lr=learning_rate) for i in ra
 
 epsilon = eps_start
 
-episode_memory = [EpisodeMemory(random_update=random_update, max_epi_num=100, max_epi_len=600, batch_size=batch_size, lookup_step=lookup_step) for _ in range(n_agents)]
+episode_memory = [EpisodeMemory(random_update=random_update, max_epi_num=100, max_epi_len=max_step, batch_size=batch_size, lookup_step=lookup_step) for _ in range(n_agents)]
 # EpisodeMemory(random_update=random_update, max_epi_num=100, max_epi_len=600, batch_size=batch_size, lookup_step=lookup_step)
 
 df = pd.DataFrame(columns=['episode', 'time'] + [f'action_{i}' for i in range(n_agents)] + [f'age_{i}' for i in range(n_agents)])
@@ -107,8 +102,7 @@ appended_df = []
 # Train
 for i_epi in tqdm(range(episodes), desc="Episodes", position=0, leave=True):
     s, _ = env.reset()
-    obs_cum = [s[np.array([x, x+n_agents])] for x in range(n_agents)]
-    # obs = s[np.array([0, n_agents])] # Use only Position of Cart and Pole, # "-2" should be considered.
+    obs_cum = [s[x+10*np.array(range(n_states))] for x in range(n_agents)]
     done = False
     
     episode_record_cum = [EpisodeBuffer() for _ in range(n_agents)]
@@ -122,10 +116,10 @@ for i_epi in tqdm(range(episodes), desc="Episodes", position=0, leave=True):
                                                             h_cum[i].to(device), c_cum[i].to(device),
                                                             epsilon) for i in range(n_agents)])
         a = np.array(a_cum)
+        
         # Do action
         s_prime, r, done, _, _ = env.step(a)
-        # obs_prime = s_prime # "-2" should be considered.
-        obs_prime_cum = [s_prime[np.array([x, x+n_agents])] for x in range(n_agents)]
+        obs_prime_cum = [s_prime[x+10*np.array(range(n_states))] for x in range(n_agents)]
 
         # make data
         done_mask = 0.0 if done else 1.0
@@ -162,7 +156,7 @@ for i_epi in tqdm(range(episodes), desc="Episodes", position=0, leave=True):
     
     epsilon = max(eps_end, epsilon * eps_decay) # Linear annealing
     
-    print(f"n_episode: {i_epi}/{episodes}, score: {score_sum}, n_buffer: {len(episode_memory)}, eps: {epsilon*100}%")
+    print(f"n_episode: {i_epi}/{episodes}, score: {score_sum:.2f}, n_buffer: {len(episode_memory[0])}, eps: {epsilon*100:.2f}%")
     
     # Log the reward
     writer.add_scalar('Rewards per episodes', score_sum, i_epi)

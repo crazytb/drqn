@@ -118,6 +118,9 @@ class PNDEnv(Env):
 
         done = (self.episode_length == 0)
         
+        if done and np.sum(self._done_within_epi) == self.n:
+            reward += 100
+        
         observation = self.get_obs()
 
         return observation, reward, False, done, None

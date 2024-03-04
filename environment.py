@@ -223,7 +223,7 @@ class DRQN(nn.Module):
         assert state_space is not None, "None state_space input: state_space should be selected."
         assert action_space is not None, "None action_space input: action_space should be selected."
 
-        self.hidden_space = 4
+        self.hidden_space = state_space
         self.state_space = state_space
         self.action_space = action_space
 

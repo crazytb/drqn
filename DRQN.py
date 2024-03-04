@@ -39,11 +39,11 @@ random_update = True    # If you want to do random update instead of sequential 
 lookup_step = 20        # If you want to do random update instead of sequential update
 
 # Number of envs param
-n_agents = 10
+n_agents = 30
 density = 1
 max_step = 300
 # None, "dumbbell", "linear"
-model = None
+model = "dumbbell"
 
 # Set gym environment
 env_params = {

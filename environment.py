@@ -79,7 +79,7 @@ class PNDEnv(Env):
         self._done_within_epi = np.zeros(self.n)
         
         self.adjacency_matrix = self.make_adjacency_matrix()  # Adjacency matrix
-        self.episode_length = 300
+        self.episode_length = self.max_episode_length
 
         observation = self.get_obs() 
         return observation, None
@@ -118,8 +118,8 @@ class PNDEnv(Env):
 
         done = (self.episode_length == 0)
         
-        if done and np.sum(self._done_within_epi) == self.n:
-            reward += 100
+        if done:
+            reward += (np.sum(self._done_within_epi)/self.n)*(self.max_episode_length/2)
         
         observation = self.get_obs()
 
@@ -194,28 +194,6 @@ class PNDEnv(Env):
 
 # Q_network
 class DRQN(nn.Module):
-    """
-    DRQN class represents the deep Q-network model for reinforcement learning.
-
-    Args:
-        state_space (int): The size of the state space.
-        action_space (int): The size of the action space.
-
-    Attributes:
-        hidden_space (int): The size of the hidden space.
-        state_space (int): The size of the state space.
-        action_space (int): The size of the action space.
-        Linear1 (nn.Linear): The first linear layer.
-        lstm (nn.LSTM): The LSTM layer.
-        Linear2 (nn.Linear): The second linear layer.
-
-    Methods:
-        forward(x, h, c): Performs forward pass through the network.
-        sample_action(obs, h, c, epsilon): Samples an action based on the current observation and epsilon-greedy policy.
-        init_hidden_state(batch_size, training): Initializes the hidden state of the LSTM.
-
-    """
-
     def __init__(self, state_space=None, action_space=None):
         super(DRQN, self).__init__()
 
@@ -234,7 +212,6 @@ class DRQN(nn.Module):
         nn.init.xavier_uniform_(self.Linear1.weight)
         nn.init.xavier_uniform_(self.Linear2.weight)
         
-
     def forward(self, x, h, c):
         """
         Performs forward pass through the network.

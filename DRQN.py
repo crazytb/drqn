@@ -35,15 +35,15 @@ eps_decay = 0.995
 tau = 1e-2
 
 # DRQN param
-random_update = True    # If you want to do random update instead of sequential update
+random_update = False    # If you want to do random update instead of sequential update
 lookup_step = 20        # If you want to do random update instead of sequential update
 
 # Number of envs param
-n_agents = 30
+n_agents = 10
 density = 1
 max_step = 300
 # None, "dumbbell", "linear"
-model = "dumbbell"
+model = "linear"
 
 # Set gym environment
 env_params = {
@@ -77,7 +77,7 @@ env.save_graph_with_labels(output_path)
 
 
 # Create Q functions
-n_states = 4
+n_states = len(env.observation_space)
 n_actions = 2
 
 Q_cum = [DRQN(state_space=n_states, action_space=n_actions).to(device) for _ in range(n_agents)]
@@ -125,7 +125,7 @@ for i_epi in tqdm(range(episodes), desc="Episodes", position=0, leave=True):
         done_mask = 0.0 if done else 1.0
 
         for i_n in range(n_agents):
-            episode_record_cum[i_n].put([obs_cum[i_n], a[i_n], r/100.0, obs_prime_cum[i_n], done_mask])
+            episode_record_cum[i_n].put([obs_cum[i_n], a[i_n], r, obs_prime_cum[i_n], done_mask])
 
         obs_cum = obs_prime_cum
         

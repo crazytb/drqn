@@ -43,14 +43,16 @@ n_agents = 10
 density = 1
 max_step = 300
 # None, "dumbbell", "linear"
-model = "linear"
+model = "dumbbell"
+model_shared = True
 
 # Set gym environment
 env_params = {
     "n": n_agents,
     "density": density,
     "max_episode_length": max_step,
-    "model": model
+    "model": model,
+    # "model_shared": model_shared
     }
 if model == None:
     env_params_str = f"n{n_agents}_density{density}_max_episode_length{episodes}"
@@ -83,6 +85,7 @@ n_actions = 2
 Q_cum = [DRQN(state_space=n_states, action_space=n_actions).to(device) for _ in range(n_agents)]
 Q_target_cum = [DRQN(state_space=n_states, action_space=n_actions).to(device) for _ in range(n_agents)]
 [Q_target_cum[i].load_state_dict(Q_cum[i].state_dict()) for i in range(n_agents)]
+Q_global = DRQN(state_space=n_states, action_space=n_actions).to(device)
 
 
 # Set optimizer
@@ -104,6 +107,13 @@ for i_epi in tqdm(range(episodes), desc="Episodes", position=0, leave=True):
     s, _ = env.reset()
     obs_cum = [s[x+10*np.array(range(n_states))] for x in range(n_agents)]
     done = False
+    
+    # if model_shared and (i_epi % 10 == 0):
+    #     # Sum parameters of Q_target and copy it to Q_global
+    #     Q_global.load_state_dict(Q_cum[0].state_dict())
+    #     for i in range(1, n_agents):
+    #         for target_param, local_param in zip(Q_global.parameters(), Q_cum[i].parameters()):
+    #             target_param.data += local_param.data
     
     episode_record_cum = [EpisodeBuffer() for _ in range(n_agents)]
     # episode_record = EpisodeBuffer()
@@ -137,16 +147,23 @@ for i_epi in tqdm(range(episodes), desc="Episodes", position=0, leave=True):
                 train(Q_cum[i_m], Q_target_cum[i_m], episode_memory[i_m], device, optimizer=optimizer_cum[i_m], batch_size=batch_size, learning_rate=learning_rate)
 
                 if (t+1) % target_update_period == 0:
-                    # Q_target.load_state_dict(Q.state_dict()) <- naive update
+                    # # Q_target.load_state_dict(Q.state_dict()) <- naive update
+                    # if model_shared:
+                    #     # Make Q_global that is the sum of Q_targets
+                    #     Q_global.load_state_dict(Q_cum[0].state_dict())
+                    #     for i in range(1, n_agents):
+                    #         for target_param, local_param in zip(Q_global.parameters(), Q_cum[i].parameters()):
+                    #             target_param.data += local_param.data / n_agents
+                    #     # Update Q_targets
+                    #     [Q_target_cum[i].load_state_dict(Q_global.state_dict()) for i in range(n_agents)]
+                    
                     for target_param, local_param in zip(Q_target_cum[i_m].parameters(), Q_cum[i_m].parameters()): # <- soft update
                             target_param.data.copy_(tau*local_param.data + (1.0 - tau)*target_param.data)
+                    
         
         df_currepoch = pd.DataFrame(data=[[i_epi, t, *a, *env.get_current_age()]],
                                     columns=['episode', 'time'] + [f'action_{i}' for i in range(n_agents)] + [f'age_{i}' for i in range(n_agents)])
         appended_df.append(df_currepoch)
-        # df = pd.concat([df, df_currepoch], ignore_index=True)
-        # df_currepoch = pd.DataFrame(data=[[i_epi, t, action.item(), env.leftbuffers, env.consumed_energy]],
-        #                             columns=['epoch', 'action', 'left_buffer', 'consumed_energy'])
         
         if done:
             break
@@ -169,8 +186,10 @@ for i in range(n_agents):
 df = pd.concat(appended_df, ignore_index=True)
 # Save the log with timestamp
 current_time = datetime.now().strftime("%b%d_%H-%M-%S")
-df_lastepisodes = df[df['episode'] >= episodes-1]
-df_lastepisodes.to_csv(output_path + f"/log_{current_time}.csv", index=False)
+df_first10episodes = df[df['episode'] <= 10]
+df_last10episodes = df[df['episode'] >= episodes-10]
+df_tobestored = pd.concat([df_first10episodes, df_last10episodes], ignore_index=True)
+df_tobestored.to_csv(output_path + f"/log_{current_time}.csv", index=False)
 
 writer.close()
 env.close()

@@ -25,7 +25,7 @@ else:
 
 # Parameters
 POWERCOEFF = 0.1
-AGECOEFF = 1
+AGECOEFF = 100
 
 class PNDEnv(Env):
     def __init__(self, **kwargs):
@@ -59,7 +59,7 @@ class PNDEnv(Env):
 
     def get_obs(self):
         current_age = np.reshape(self._current_age, newshape=(self.n))
-        prev_result = np.reshape(self._prev_result, newshape=(self.n))
+        prev_result = np.reshape(self._prev_action, newshape=(self.n))
         adj_result = np.reshape(self._adj_result, newshape=(self.n))
         done_within_epi = np.reshape(self._done_within_epi, newshape=(self.n))
         return np.concatenate([current_age, prev_result, adj_result, done_within_epi])
@@ -74,7 +74,8 @@ class PNDEnv(Env):
         super().reset(seed=seed)
         # State reset
         self._current_age = np.zeros(self.n)
-        self._prev_result = np.zeros(self.n)
+        self._max_age = np.zeros(self.n)
+        self._prev_action = np.zeros(self.n)
         self._adj_result = np.zeros(self.n)
         self._done_within_epi = np.zeros(self.n)
         
@@ -87,10 +88,10 @@ class PNDEnv(Env):
     def step(self, action: np.array):  # 여기 해야 함.
         # Check if the action is valid. Action length must be equal to the number of nodes and action must be 0 or 1. 
         reward = 0
-        assert len(action) == len(self._prev_result), "Action length must be equal to the number of nodes."
+        assert len(action) == len(self._prev_action), "Action length must be equal to the number of nodes."
         assert all([a in [0, 1] for a in action]), "Action must be 0 or 1."
         
-        self._prev_result = action
+        self._prev_action = action
 
         action_tiled = np.tile(action.reshape(-1, 1), (1, self.n))  # Full mesh 가정, action_tiled[i, :] = action
         txrx_matrix = np.multiply(self.adjacency_matrix, action_tiled)  # Adj만 고려한 txrx_matrix
@@ -110,16 +111,18 @@ class PNDEnv(Env):
         self._current_age += 1/self.max_episode_length
         self._current_age = np.clip(self._current_age, 0, 1)
         self._current_age[idx_success] = 0
+        self._max_age = np.maximum(self._current_age, self._max_age)
         self._done_within_epi[idx_success] = 1
         
         self.episode_length -= 1
         
-        reward = -AGECOEFF*np.mean(self._current_age) # 
-
+        # reward = -AGECOEFF*np.mean(self._current_age) # Reward should be a self.n length vector
+        reward = len(idx_success)/self.n
+        
         done = (self.episode_length == 0)
         
         if done:
-            reward += (np.sum(self._done_within_epi)/self.n)*(self.max_episode_length/2)
+            reward -= AGECOEFF*np.mean(self._max_age)
         
         observation = self.get_obs()
 
@@ -213,70 +216,56 @@ class DRQN(nn.Module):
         nn.init.xavier_uniform_(self.Linear2.weight)
         
     def forward(self, x, h, c):
-        """
-        Performs forward pass through the network.
-
-        Args:
-            x (torch.Tensor): The input tensor.
-            h (torch.Tensor): The previous hidden state of the LSTM.
-            c (torch.Tensor): The previous cell state of the LSTM.
-
-        Returns:
-            torch.Tensor: The output tensor.
-            torch.Tensor: The new hidden state of the LSTM.
-            torch.Tensor: The new cell state of the LSTM.
-
-        """
         x = F.relu(self.Linear1(x))
         x, (new_h, new_c) = self.lstm(x, (h, c))
         x = self.Linear2(x)
         return x, new_h, new_c
 
     def sample_action(self, obs, h, c, epsilon):
-        """
-        Samples an action based on the current observation and epsilon-greedy policy.
-
-        Args:
-            obs (torch.Tensor): The current observation.
-            h (torch.Tensor): The previous hidden state of the LSTM.
-            c (torch.Tensor): The previous cell state of the LSTM.
-            epsilon (float): The exploration rate.
-
-        Returns:
-            int: The sampled action.
-            torch.Tensor: The new hidden state of the LSTM.
-            torch.Tensor: The new cell state of the LSTM.
-
-        """
         output = self.forward(obs, h, c)
-
         if random.random() < epsilon:
             return random.randint(0, 1), output[1], output[2]
         else:
             return output[0].argmax().item(), output[1], output[2]
 
     def init_hidden_state(self, batch_size, training=None):
-        """
-        Initializes the hidden state of the LSTM.
-
-        Args:
-            batch_size (int): The batch size.
-            training (bool): Indicates whether it is a training step or not.
-
-        Returns:
-            torch.Tensor: The initial hidden state of the LSTM.
-            torch.Tensor: The initial cell state of the LSTM.
-
-        Raises:
-            AssertionError: If the training parameter is not specified.
-
-        """
         assert training is not None, "training step parameter should be determined"
 
         if training is True:
             return torch.zeros([1, batch_size, self.hidden_space]), torch.zeros([1, batch_size, self.hidden_space])
         else:
             return torch.zeros([1, 1, self.hidden_space]), torch.zeros([1, 1, self.hidden_space])
+
+
+class Policy(nn.Module):
+    def __init__(self, state_space=None, action_space=None):
+        super(Policy, self).__init__()
+        
+        self.state_space = state_space
+        self.hidden_space = state_space
+        self.action_space = action_space
+        
+        self.linear1 = nn.Linear(self.state_space, self.hidden_space)
+        self.lstm = nn.LSTM(self.hidden_space, self.hidden_space)
+        self.linear2 = nn.Linear(self.hidden_space, self.action_space)
+        
+        nn.init.xavier_uniform_(self.linear1.weight)
+        nn.init.xavier_uniform_(self.linear2.weight)
+
+    def forward(self, x, h, c):
+        x = F.relu(self.linear1(x))
+        x, (new_h, new_c) = self.lstm(x, (h, c))
+        x = F.softmax(self.linear2(x), dim=2)
+        return x, new_h, new_c
+
+    def sample_action(self, obs, h, c):
+        output = self.forward(obs, h, c)
+        # Select action with respect to the action probabilities
+        action = torch.squeeze(output[0]).multinomial(num_samples=1)    
+        return action.item(), output[1], output[2]
+    
+    def init_hidden_state(self):
+        return torch.zeros([1, 1, self.hidden_space]), torch.zeros([1, 1, self.hidden_space])
 
 
 class EpisodeMemory():
@@ -415,6 +404,63 @@ def train(q_net=None, target_q_net=None, episode_memory=None,
     h_target, c_target = target_q_net.init_hidden_state(batch_size=batch_size, training=True)
 
     q_target, _, _ = target_q_net(next_observations, h_target.to(device), c_target.to(device))
+
+    q_target_max = q_target.max(2)[0].view(batch_size,seq_len,-1).detach()
+    targets = rewards + gamma*q_target_max*dones
+
+
+    h, c = q_net.init_hidden_state(batch_size=batch_size, training=True)
+    q_out, _, _ = q_net(observations, h.to(device), c.to(device))
+    q_a = q_out.gather(2, actions)
+
+    # Multiply Importance Sampling weights to loss        
+    loss = F.smooth_l1_loss(q_a, targets)
+    
+    # Update Network
+    optimizer.zero_grad()
+    loss.backward()
+    optimizer.step()
+    
+def train_policy(q_net=None, episode_memory=None,
+          device=None, 
+          optimizer = None,
+          batch_size=1,
+          learning_rate=1e-3,
+          gamma=0.99):
+
+    assert device is not None, "None Device input: device should be selected."
+
+    # Get batch from replay buffer
+    samples, seq_len = episode_memory.sample()
+
+    observations = []
+    actions = []
+    rewards = []
+    next_observations = []
+    dones = []
+
+    for i in range(batch_size):
+        observations.append(samples[i]["obs"])
+        actions.append(samples[i]["acts"])
+        rewards.append(samples[i]["rews"])
+        next_observations.append(samples[i]["next_obs"])
+        dones.append(samples[i]["done"])
+
+    observations = np.array(observations)
+    actions = np.array(actions)
+    rewards = np.array(rewards)
+    next_observations = np.array(next_observations)
+    dones = np.array(dones)
+
+    observations = torch.FloatTensor(observations.reshape(batch_size,seq_len,-1)).to(device)
+    actions = torch.LongTensor(actions.reshape(batch_size,seq_len,-1)).to(device)
+    rewards = torch.FloatTensor(rewards.reshape(batch_size,seq_len,-1)).to(device)
+    next_observations = torch.FloatTensor(next_observations.reshape(batch_size,seq_len,-1)).to(device)
+    dones = torch.FloatTensor(dones.reshape(batch_size,seq_len,-1)).to(device)
+
+    h_target, c_target = q_net.init_hidden_state(batch_size=batch_size, training=True)
+
+    q_target, _, _ = q_net(next_observations, h_target.to(device), c_target.to(device))
 
     q_target_max = q_target.max(2)[0].view(batch_size,seq_len,-1).detach()
     targets = rewards + gamma*q_target_max*dones

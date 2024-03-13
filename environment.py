@@ -251,6 +251,7 @@ class Policy(nn.Module):
         
         nn.init.xavier_uniform_(self.linear1.weight)
         nn.init.xavier_uniform_(self.linear2.weight)
+        
 
     def forward(self, x, h, c):
         x = F.relu(self.linear1(x))

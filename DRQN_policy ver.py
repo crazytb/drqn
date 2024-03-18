@@ -14,6 +14,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
 from environment import *
+from reinforce_discrete import *
 
 
 if torch.cuda.is_available():
@@ -79,49 +80,41 @@ env.save_graph_with_labels(output_path)
 
 # Create policy functions
 n_states = len(env.observation_space)
+n_hiddens = n_states
 n_actions = 2
-Policy_cum = [Policy(state_space=n_states, action_space=n_actions).to(device) for _ in range(n_agents)]
-
-
-# Set optimizer
-score = 0
-score_sum = 0
-optimizer_cum = [optim.Adam(Policy_cum[i].parameters(), lr=learning_rate) for i in range(n_agents)]
-
-epsilon = eps_start
-
-episode_memory = [EpisodeMemory(random_update=random_update, max_epi_num=100, max_epi_len=max_step, batch_size=batch_size, lookup_step=lookup_step) for _ in range(n_agents)]
-# EpisodeMemory(random_update=random_update, max_epi_num=100, max_epi_len=600, batch_size=batch_size, lookup_step=lookup_step)
+agents = [REINFORCEAgent(n_states, n_hiddens, n_actions) for _ in range(n_agents)]
 
 df = pd.DataFrame(columns=['episode', 'time'] + [f'action_{i}' for i in range(n_agents)] + [f'age_{i}' for i in range(n_agents)])
 appended_df = []
 
 # Train
 for i_epi in tqdm(range(episodes), desc="Episodes", position=0, leave=True):
+    score = 0
+    score_sum = 0
+    
     s, _ = env.reset()
+    entropy_cum = [np.zeros((max_step)) for _ in range(n_agents)]
+    log_prob_cum = [np.zeros((max_step)) for _ in range(n_agents)]
+    reward_cum = np.zeros((max_step))
+    
     obs_cum = [s[x+10*np.array(range(n_states))] for x in range(n_agents)]
     done = False
-    
-    # if model_shared and (i_epi % 10 == 0):
-    #     # Sum parameters of Q_target and copy it to Q_global
-    #     Q_global.load_state_dict(Q_cum[0].state_dict())
-    #     for i in range(1, n_agents):
-    #         for target_param, local_param in zip(Q_global.parameters(), Q_cum[i].parameters()):
-    #             target_param.data += local_param.data
-    
+        
     episode_record_cum = [EpisodeBuffer() for _ in range(n_agents)]
     # episode_record = EpisodeBuffer()
-    h_cum, c_cum = zip(*[Policy_cum[i].init_hidden_state() for i in range(n_agents)])
-    # h, c = Q.init_hidden_state(batch_size=batch_size, training=False)
-
+    h_cum, c_cum = zip(*[agents[i].policy.init_hidden_state() for i in range(n_agents)])
+    
     for t in tqdm(range(max_step), desc="   Steps", position=1, leave=False):
         # Get action
-        a_cum, h_cum, c_cum = zip(*[Policy_cum[i].sample_action(torch.from_numpy(obs_cum[i]).float().to(device).unsqueeze(0).unsqueeze(0),
+        a_cum, h_cum, c_cum, log_prob_cum, entropy_cum = zip(*[agents[i].sample_action(torch.from_numpy(obs_cum[i]).float().to(device).unsqueeze(0).unsqueeze(0),
                                                             h_cum[i].to(device), c_cum[i].to(device)) for i in range(n_agents)])
-        a = np.array(a_cum)
+        a = [a[0].item() for a in a_cum]
+        a = np.array(a)
         
         # Do action
         s_prime, r, done, _, _ = env.step(a)
+        # Put r into reward_cum
+        reward_cum[t] = r
         obs_prime_cum = [s_prime[x+10*np.array(range(n_states))] for x in range(n_agents)]
 
         # make data
@@ -136,8 +129,9 @@ for i_epi in tqdm(range(episodes), desc="Episodes", position=0, leave=True):
         score_sum += r
 
         for i_m in range(n_agents):
-            if len(episode_memory[i_m]) >= min_epi_num:
-                train_policy(Policy_cum[i_m], episode_memory[i_m], device, optimizer=optimizer_cum[i_m], batch_size=batch_size, learning_rate=learning_rate)
+            if len(agents[i_m].episode_memory) >= min_epi_num:
+                agents[i_m].update_parameters(reward_cum, log_probs, entropies, args.gamma)
+                # train_policy(agents[i_m].policy, agents[i_m].episode_memory, device, optimizer=agents[i_m].optimizer, batch_size=batch_size, learning_rate=learning_rate)
 
                 # if (t+1) % target_update_period == 0:
                 #     for target_param, local_param in zip(Q_target_cum[i_m].parameters(), Policy_cum[i_m].parameters()): # <- soft update
@@ -152,21 +146,20 @@ for i_epi in tqdm(range(episodes), desc="Episodes", position=0, leave=True):
             break
     
     for i_j in range(n_agents):
-        episode_memory[i_j].put(episode_record_cum[i_j])
+        agents[i_j].episode_memory.put(episode_record_cum[i_j])
     
     epsilon = max(eps_end, epsilon * eps_decay) # Linear annealing
     
-    print(f"n_episode: {i_epi}/{episodes}, score: {score_sum:.2f}, n_buffer: {len(episode_memory[0])}, eps: {epsilon*100:.2f}%")
+    print(f"n_episode: {i_epi}/{episodes}, score: {score_sum:.2f}")
     
     # Log the reward
     writer.add_scalar('Rewards per episodes', score_sum, i_epi)
-    score = 0
-    score_sum = 0.0
     
 for i in range(n_agents):
-    torch.save(Policy_cum[i].state_dict(), output_path + f"/Q_cum_{i}.pth")
+    torch.save(agents[i].policy.state_dict(), output_path + f"/Q_cum_{i}.pth")
     
 df = pd.concat(appended_df, ignore_index=True)
+
 # Save the log with timestamp
 current_time = datetime.now().strftime("%b%d_%H-%M-%S")
 df_first10episodes = df[df['episode'] <= 10]

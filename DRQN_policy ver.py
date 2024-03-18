@@ -93,8 +93,8 @@ for i_epi in tqdm(range(episodes), desc="Episodes", position=0, leave=True):
     score_sum = 0
     
     s, _ = env.reset()
-    entropy_cum = [np.zeros((max_step)) for _ in range(n_agents)]
-    log_prob_cum = [np.zeros((max_step)) for _ in range(n_agents)]
+    entropy_cum = torch.empty(size=(n_agents, max_step))
+    log_prob_cum = torch.empty(size=(n_agents, max_step))
     reward_cum = np.zeros((max_step))
     
     obs_cum = [s[x+10*np.array(range(n_states))] for x in range(n_agents)]
@@ -106,10 +106,12 @@ for i_epi in tqdm(range(episodes), desc="Episodes", position=0, leave=True):
     
     for t in tqdm(range(max_step), desc="   Steps", position=1, leave=False):
         # Get action
-        a_cum, h_cum, c_cum, log_prob_cum, entropy_cum = zip(*[agents[i].sample_action(torch.from_numpy(obs_cum[i]).float().to(device).unsqueeze(0).unsqueeze(0),
+        a_cum, h_cum, c_cum, log_probs, entropies = zip(*[agents[i].sample_action(torch.from_numpy(obs_cum[i]).float().to(device).unsqueeze(0).unsqueeze(0),
                                                             h_cum[i].to(device), c_cum[i].to(device)) for i in range(n_agents)])
         a = [a[0].item() for a in a_cum]
         a = np.array(a)
+        log_prob_cum[:, t] = torch.stack(log_probs).flatten()
+        entropy_cum[:, t] = torch.stack(entropies).flatten()
         
         # Do action
         s_prime, r, done, _, _ = env.step(a)
@@ -130,7 +132,7 @@ for i_epi in tqdm(range(episodes), desc="Episodes", position=0, leave=True):
 
         for i_m in range(n_agents):
             if len(agents[i_m].episode_memory) >= min_epi_num:
-                agents[i_m].update_parameters(reward_cum, log_probs, entropies, args.gamma)
+                agents[i_m].update_parameters(reward_cum, log_probs, entropies, 0.98)
                 # train_policy(agents[i_m].policy, agents[i_m].episode_memory, device, optimizer=agents[i_m].optimizer, batch_size=batch_size, learning_rate=learning_rate)
 
                 # if (t+1) % target_update_period == 0:
@@ -148,7 +150,7 @@ for i_epi in tqdm(range(episodes), desc="Episodes", position=0, leave=True):
     for i_j in range(n_agents):
         agents[i_j].episode_memory.put(episode_record_cum[i_j])
     
-    epsilon = max(eps_end, epsilon * eps_decay) # Linear annealing
+    # epsilon = max(eps_end, epsilon * eps_decay) # Linear annealing
     
     print(f"n_episode: {i_epi}/{episodes}, score: {score_sum:.2f}")
     

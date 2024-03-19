@@ -80,56 +80,53 @@ env.save_graph_with_labels(output_path)
 
 # Create policy functions
 n_states = len(env.observation_space)
-n_hiddens = n_states
+n_hiddens = 32
 n_actions = 2
 agents = [REINFORCEAgent(n_states, n_hiddens, n_actions) for _ in range(n_agents)]
 
-df = pd.DataFrame(columns=['episode', 'time'] + [f'action_{i}' for i in range(n_agents)] + [f'age_{i}' for i in range(n_agents)])
+# Create dataframe to store the log
+df = pd.DataFrame(columns
+                  = ['episode', 'time']
+                  + [f'action_{i}' for i in range(n_agents)]
+                  + [f'age_{i}' for i in range(n_agents)])
 appended_df = []
 
 # Train
 for i_epi in tqdm(range(episodes), desc="Episodes", position=0, leave=True):
-    score = 0
-    score_sum = 0
-    
     s, _ = env.reset()
-    entropy_cum = torch.empty(size=(n_agents, max_step))
-    log_prob_cum = torch.empty(size=(n_agents, max_step))
-    reward_cum = np.zeros((max_step))
-    
-    obs_cum = [s[x+10*np.array(range(n_states))] for x in range(n_agents)]
+    entropy_cum = [[] for _ in range(n_agents)]
+    log_prob_cum = [[] for _ in range(n_agents)]
+    reward_cum = [[] for _ in range(n_agents)]
+    obs_cum = [s[x + n_agents*np.array(range(n_states))] for x in range(n_agents)]
     done = False
         
-    episode_record_cum = [EpisodeBuffer() for _ in range(n_agents)]
-    # episode_record = EpisodeBuffer()
-    h_cum, c_cum = zip(*[agents[i].policy.init_hidden_state() for i in range(n_agents)])
+    # h_cum, c_cum = zip(*[agents[i].policy.init_hidden_state() for i in range(n_agents)])
     
     for t in tqdm(range(max_step), desc="   Steps", position=1, leave=False):
         # Get action
-        a_cum, h_cum, c_cum, log_probs, entropies = zip(*[agents[i].sample_action(torch.from_numpy(obs_cum[i]).float().to(device).unsqueeze(0).unsqueeze(0),
-                                                            h_cum[i].to(device), c_cum[i].to(device)) for i in range(n_agents)])
-        a = [a[0].item() for a in a_cum]
-        a = np.array(a)
-        log_prob_cum[:, t] = torch.stack(log_probs).flatten()
-        entropy_cum[:, t] = torch.stack(entropies).flatten()
+        actions, log_probs, entropies = zip(*[agents[i].sample_action(torch.from_numpy(obs_cum[i]).float().to(device).unsqueeze(0).unsqueeze(0)) for i in range(n_agents)])
+        a = np.array([a[0].item() for a in actions])
+        
+        for i in range(n_agents):
+            log_prob_cum[i].append(log_probs[i])
+            entropy_cum[i].append(entropies[i])        
+        # log_prob_cum[:, t] = torch.stack(log_probs).flatten()
+        # entropy_cum[:, t] = torch.stack(entropies).flatten()
         
         # Do action
         s_prime, r, done, _, _ = env.step(a)
         # Put r into reward_cum
         reward_cum[t] = r
-        obs_prime_cum = [s_prime[x+10*np.array(range(n_states))] for x in range(n_agents)]
+        obs_prime_cum = [s_prime[x + n_agents*np.array(range(n_states))] for x in range(n_agents)]
 
         # make data
         done_mask = 0.0 if done else 1.0
 
         for i_n in range(n_agents):
-            episode_record_cum[i_n].put([obs_cum[i_n], a[i_n], r, obs_prime_cum[i_n], done_mask])
+            agents[i_n].epoch_buffer.put([obs_cum[i_n], a[i_n], r, obs_prime_cum[i_n], done_mask])
 
         obs_cum = obs_prime_cum
         
-        score = r
-        score_sum += r
-
         for i_m in range(n_agents):
             if len(agents[i_m].episode_memory) >= min_epi_num:
                 agents[i_m].update_parameters(reward_cum, log_probs, entropies, 0.98)

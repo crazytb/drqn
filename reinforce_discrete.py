@@ -31,25 +31,32 @@ class Policy(nn.Module):
         self.action_space = action_space
 
         self.linear1 = nn.Linear(self.state_space, self.hidden_space)
-        self.lstm = nn.LSTM(self.hidden_space, self.hidden_space)
-        self.linear2 = nn.Linear(self.hidden_space, self.action_space)
+        self.linear2 = nn.Linear(self.hidden_space, self.hidden_space)
+        self.linear3 = nn.Linear(self.hidden_space, self.action_space)
         
         nn.init.xavier_uniform_(self.linear1.weight)
         nn.init.xavier_uniform_(self.linear2.weight)
+        nn.init.xavier_uniform_(self.linear3.weight)
 
-    def forward(self, x, h, c):
+    def forward(self, x):
         x = F.relu(self.linear1(x))
-        x, (h, c) = self.lstm(x, (h, c))
-        x = self.linear2(x)
-        x = F.softmax(x, dim=2)
-        return x, h, c
+        x = F.relu(self.linear2(x))
+        x = F.softmax(self.linear3(x), dim=2)
+        return x
     
-    def init_hidden_state(self, training=None):
-        # assert training is not None, "training step parameter should be determined"
-        # if training is True:
-        #     return torch.zeros([1, batch_size, self.hidden_space]), torch.zeros([1, batch_size, self.hidden_space])
-        # else:
-        return torch.zeros([1, 1, self.hidden_space]), torch.zeros([1, 1, self.hidden_space])
+    # def forward(self, x, h, c):
+    #     x = F.relu(self.linear1(x))
+    #     x, (h, c) = self.linear2(x, (h, c))
+    #     x = self.linear3(x)
+    #     x = F.softmax(x, dim=2)
+    #     return x, h, c
+    
+    # def init_hidden_state(self, training=None):
+    #     # assert training is not None, "training step parameter should be determined"
+    #     # if training is True:
+    #     #     return torch.zeros([1, batch_size, self.hidden_space]), torch.zeros([1, batch_size, self.hidden_space])
+    #     # else:
+    #     return torch.zeros([1, 1, self.hidden_space]), torch.zeros([1, 1, self.hidden_space])
     
 
 class EpisodeMemory():
@@ -106,7 +113,7 @@ class EpisodeMemory():
         return len(self.memory)
 
 
-class EpisodeBuffer:
+class EpochBuffer:
     """A simple numpy replay buffer."""
     def __init__(self):
         self.obs = []
@@ -151,19 +158,29 @@ class REINFORCEAgent:
         self.action_space = action_space
         self.hidden_space = hidden_space
         self.episode_memory = EpisodeMemory(random_update=False, max_epi_num=100, max_epi_len=600, batch_size=1, lookup_step=1)
-        self.episode_buffer = EpisodeBuffer()
+        self.epoch_buffer = EpochBuffer()
         self.policy = Policy(state_space, hidden_space, action_space).to(device)
         self.optimizer = optim.Adam(self.policy.parameters(), lr=1e-3)
         self.policy.train()
 
-    def sample_action(self, obs, h, c):
-        probs, new_h, new_c = self.policy.forward(obs, h, c)
+    def sample_action(self, obs):
+        probs = self.policy.forward(obs)
         action = torch.multinomial(probs.squeeze(0), 1)
         prob = probs.gather(2, action.unsqueeze(2))
-        log_prob = prob.log()
+        log_prob = prob.log().flatten()
         entropy = -(probs*probs.log()).sum()
+        entropy = entropy.flatten()
 
-        return action[0], new_h, new_c, log_prob, entropy
+        return action[0], log_prob, entropy
+    
+    # def sample_action(self, obs, h, c):
+    #     probs, new_h, new_c = self.policy.forward(obs, h, c)
+    #     action = torch.multinomial(probs.squeeze(0), 1)
+    #     prob = probs.gather(2, action.unsqueeze(2))
+    #     log_prob = prob.log()
+    #     entropy = -(probs*probs.log()).sum()
+
+    #     return action[0], new_h, new_c, log_prob, entropy
 
     def update_parameters(self, rewards, log_probs, entropies, gamma):
         R = torch.zeros(1, 1)

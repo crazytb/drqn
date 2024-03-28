@@ -2,6 +2,7 @@
 # https://ropiens.tistory.com/80
 # https://github.com/chingyaoc/pytorch-REINFORCE/tree/master
 # % tensorboard --logdir=runs
+# 이거 extreme edge device로 키워드 잡으면 좋을듯
 
 import os
 import numpy as np

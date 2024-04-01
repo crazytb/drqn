@@ -1,6 +1,7 @@
 # https://github.com/keep9oing/DRQN-Pytorch-CartPole-v1
 # https://ropiens.tistory.com/80
 # https://github.com/chingyaoc/pytorch-REINFORCE/tree/master
+
 # % tensorboard --logdir=runs
 # 이거 extreme edge device로 키워드 잡으면 좋을듯
 
@@ -44,8 +45,8 @@ lookup_step = 20        # If you want to do random update instead of sequential 
 n_agents = 10
 density = 1
 max_step = 300
-# None, "dumbbell", "linear"
-model = "dumbbell"
+# None, "dumbbell", "linear", "fullmesh"
+model = "fullmesh"
 
 
 # Set gym environment
@@ -96,20 +97,22 @@ appended_df = []
 for i_epi in tqdm(range(episodes), desc="Episodes", position=0, leave=True):
     s, _ = env.reset()
     entropy_cum = [[] for _ in range(n_agents)]
-    log_prob_cum = [[] for _ in range(n_agents)]
-    reward_cum = [[] for _ in range(n_agents)]
+    prob_cum = [[] for _ in range(n_agents)]
+    reward_cum = []
     obs_cum = [s[x + n_agents*np.array(range(n_states))] for x in range(n_agents)]
     done = False
-        
-    # h_cum, c_cum = zip(*[agents[i].policy.init_hidden_state() for i in range(n_agents)])
+
+    h_cum, c_cum = zip(*[agents[i].policy.init_hidden_state() for i in range(n_agents)])
     
     for t in tqdm(range(max_step), desc="   Steps", position=1, leave=False):
         # Get action
-        actions, log_probs, entropies = zip(*[agents[i].sample_action(torch.from_numpy(obs_cum[i]).float().to(device).unsqueeze(0).unsqueeze(0)) for i in range(n_agents)])
+        actions, h_cum, c_cum, probs, entropies = zip(*[agents[i].sample_action(torch.from_numpy(obs_cum[i]).float().to(device).unsqueeze(0).unsqueeze(0),
+                                                                  h_cum[i].to(device),
+                                                                  c_cum[i].to(device)) for i in range(n_agents)])
         a = np.array([a[0].item() for a in actions])
-        
+
         for i in range(n_agents):
-            log_prob_cum[i].append(log_probs[i])
+            prob_cum[i].append(probs[i])
             entropy_cum[i].append(entropies[i])        
         # log_prob_cum[:, t] = torch.stack(log_probs).flatten()
         # entropy_cum[:, t] = torch.stack(entropies).flatten()
@@ -117,7 +120,7 @@ for i_epi in tqdm(range(episodes), desc="Episodes", position=0, leave=True):
         # Do action
         s_prime, r, done, _, _ = env.step(a)
         # Put r into reward_cum
-        reward_cum[t] = r
+        reward_cum.append(r)
         obs_prime_cum = [s_prime[x + n_agents*np.array(range(n_states))] for x in range(n_agents)]
 
         # make data
@@ -127,33 +130,31 @@ for i_epi in tqdm(range(episodes), desc="Episodes", position=0, leave=True):
             agents[i_n].epoch_buffer.put([obs_cum[i_n], a[i_n], r, obs_prime_cum[i_n], done_mask])
 
         obs_cum = obs_prime_cum
-        
-        for i_m in range(n_agents):
-            if len(agents[i_m].episode_memory) >= min_epi_num:
-                agents[i_m].update_parameters(reward_cum, log_probs, entropies, 0.98)
-                # train_policy(agents[i_m].policy, agents[i_m].episode_memory, device, optimizer=agents[i_m].optimizer, batch_size=batch_size, learning_rate=learning_rate)
 
-                # if (t+1) % target_update_period == 0:
-                #     for target_param, local_param in zip(Q_target_cum[i_m].parameters(), Policy_cum[i_m].parameters()): # <- soft update
-                #             target_param.data.copy_(tau*local_param.data + (1.0 - tau)*target_param.data)
-                    
-        
         df_currepoch = pd.DataFrame(data=[[i_epi, t, *a, *env.get_current_age()]],
                                     columns=['episode', 'time'] + [f'action_{i}' for i in range(n_agents)] + [f'age_{i}' for i in range(n_agents)])
         appended_df.append(df_currepoch)
         
         if done:
             break
+        
+    for i_m in range(n_agents):
+        agents[i_m].update_parameters(reward_cum, prob_cum[i_m], entropy_cum[i_m], 0.98)
+        # train_policy(agents[i_m].policy, agents[i_m].episode_memory, device, optimizer=agents[i_m].optimizer, batch_size=batch_size, learning_rate=learning_rate)
+
+        # if (t+1) % target_update_period == 0:
+        #     for target_param, local_param in zip(Q_target_cum[i_m].parameters(), Policy_cum[i_m].parameters()): # <- soft update
+        #             target_param.data.copy_(tau*local_param.data + (1.0 - tau)*target_param.data)
     
-    for i_j in range(n_agents):
-        agents[i_j].episode_memory.put(episode_record_cum[i_j])
+    # for i_j in range(n_agents):
+    #     agents[i_j].episode_memory.put(agents[i_j].epoch_buffer)
     
     # epsilon = max(eps_end, epsilon * eps_decay) # Linear annealing
     
-    print(f"n_episode: {i_epi}/{episodes}, score: {score_sum:.2f}")
+    print(f"n_episode: {i_epi}/{episodes}, score: {reward_cum[-1]:.2f}")
     
     # Log the reward
-    writer.add_scalar('Rewards per episodes', score_sum, i_epi)
+    writer.add_scalar('Rewards per episodes', reward_cum[-1], i_epi)
     
 for i in range(n_agents):
     torch.save(agents[i].policy.state_dict(), output_path + f"/Q_cum_{i}.pth")

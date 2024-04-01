@@ -31,18 +31,19 @@ class Policy(nn.Module):
         self.action_space = action_space
 
         self.linear1 = nn.Linear(self.state_space, self.hidden_space)
-        self.linear2 = nn.Linear(self.hidden_space, self.hidden_space)
+        # self.linear2 = nn.Linear(self.hidden_space, self.hidden_space)
+        self.lstm = nn.LSTM(self.hidden_space, self.hidden_space, batch_first=True)
         self.linear3 = nn.Linear(self.hidden_space, self.action_space)
         
         nn.init.xavier_uniform_(self.linear1.weight)
-        nn.init.xavier_uniform_(self.linear2.weight)
+        # nn.init.xavier_uniform_(self.linear2.weight)
         nn.init.xavier_uniform_(self.linear3.weight)
 
-    def forward(self, x):
+    def forward(self, x, h, c):
         x = F.relu(self.linear1(x))
-        x = F.relu(self.linear2(x))
+        x, (h, c) = self.lstm(x, (h, c))
         x = F.softmax(self.linear3(x), dim=2)
-        return x
+        return x, h, c
     
     # def forward(self, x, h, c):
     #     x = F.relu(self.linear1(x))
@@ -51,12 +52,12 @@ class Policy(nn.Module):
     #     x = F.softmax(x, dim=2)
     #     return x, h, c
     
-    # def init_hidden_state(self, training=None):
-    #     # assert training is not None, "training step parameter should be determined"
-    #     # if training is True:
-    #     #     return torch.zeros([1, batch_size, self.hidden_space]), torch.zeros([1, batch_size, self.hidden_space])
-    #     # else:
-    #     return torch.zeros([1, 1, self.hidden_space]), torch.zeros([1, 1, self.hidden_space])
+    def init_hidden_state(self, training=None):
+        # assert training is not None, "training step parameter should be determined"
+        # if training is True:
+        #     return torch.zeros([1, batch_size, self.hidden_space]), torch.zeros([1, batch_size, self.hidden_space])
+        # else:
+        return torch.zeros([1, 1, self.hidden_space]), torch.zeros([1, 1, self.hidden_space])
     
 
 class EpisodeMemory():
@@ -163,15 +164,15 @@ class REINFORCEAgent:
         self.optimizer = optim.Adam(self.policy.parameters(), lr=1e-3)
         self.policy.train()
 
-    def sample_action(self, obs):
-        probs = self.policy.forward(obs)
+    def sample_action(self, obs, h, c):
+        probs, new_h, new_c = self.policy.forward(obs, h, c)
         action = torch.multinomial(probs.squeeze(0), 1)
-        prob = probs.gather(2, action.unsqueeze(2))
-        log_prob = prob.log().flatten()
+        prob = probs.gather(2, action.unsqueeze(2)).flatten()
+        # log_prob = prob.log().flatten()
         entropy = -(probs*probs.log()).sum()
         entropy = entropy.flatten()
 
-        return action[0], log_prob, entropy
+        return action[0], new_h, new_c, prob, entropy
     
     # def sample_action(self, obs, h, c):
     #     probs, new_h, new_c = self.policy.forward(obs, h, c)
@@ -182,15 +183,17 @@ class REINFORCEAgent:
 
     #     return action[0], new_h, new_c, log_prob, entropy
 
-    def update_parameters(self, rewards, log_probs, entropies, gamma):
-        R = torch.zeros(1, 1)
+    def update_parameters(self, rewards, probs, entropies, gamma):
+        # https://incredible.ai/reinforcement-learning/2019/05/25/Policy-Gradient-And-REINFORCE/#reinforce-method
+        R = torch.zeros(1, 1).to(device)
         loss = 0
         for i in reversed(range(len(rewards))):
             R = gamma * R + rewards[i]
-            loss = loss - (log_probs[i]*(R.expand_as(log_probs[i])).cuda()).sum() - (0.0001*entropies[i].cuda()).sum()
+            # loss = loss - (probs[i]*(R.expand_as(probs[i])).cuda()).sum() - (0.0001*entropies[i].cuda()).sum()
+            loss -= (torch.log(probs[i]) * R + 0.0001 * entropies[i])
         loss = loss / len(rewards)
 		
         self.optimizer.zero_grad()
         loss.backward()
-        utils.clip_grad_norm(self.policy.parameters(), 40)
+        # utils.clip_grad_norm(self.policy.parameters(), 40)
         self.optimizer.step()

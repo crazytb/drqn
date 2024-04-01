@@ -162,6 +162,10 @@ class PNDEnv(Env):
             for i in range(1, self.n):
                 adjacency_matrix[i-1, i] = 1
                 adjacency_matrix[i, i-1] = 1
+        elif self.model == "fullmesh":
+            adjacency_matrix[:] = 1
+            for i in range(self.n):
+                adjacency_matrix[i, i] = 0
         else:
             for i in range(1, self.n):
                 adjacency_matrix[i-1, i] = 1

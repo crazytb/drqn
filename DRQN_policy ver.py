@@ -30,7 +30,7 @@ else:
 batch_size = 1
 learning_rate = 1e-3
 min_epi_num = 20 # Start moment to train the Q network
-episodes = 100
+episodes = 1000
 target_update_period = 10
 eps_start = 0.1
 eps_end = 0.001
@@ -150,8 +150,11 @@ for i_epi in tqdm(range(episodes), desc="Episodes", position=0, leave=True):
     #     agents[i_j].episode_memory.put(agents[i_j].epoch_buffer)
     
     # epsilon = max(eps_end, epsilon * eps_decay) # Linear annealing
+    prob_list = []
+    for prob_tensor in probs:
+        prob_list.append(round(prob_tensor[-1].item(), 2))
     
-    print(f"n_episode: {i_epi}/{episodes}, score: {reward_cum[-1]:.2f}")
+    print(f"n_episode: {i_epi}/{episodes}, score: {reward_cum[-1]:.2f}, probs: {prob_list}")
     
     # Log the reward
     writer.add_scalar('Rewards per episodes', reward_cum[-1], i_epi)

@@ -117,12 +117,13 @@ class PNDEnv(Env):
         self.episode_length -= 1
         
         # reward = -AGECOEFF*np.mean(self._current_age) # Reward should be a self.n length vector
-        reward = len(idx_success)/self.n
+        # reward = len(idx_success)/self.n
+        reward = np.sum(self._prev_action)/self.n
         
         done = (self.episode_length == 0)
         
-        if done:
-            reward -= AGECOEFF*np.mean(self._max_age)
+        # if done:
+        #     reward -= AGECOEFF*np.mean(self._max_age)
         
         observation = self.get_obs()
 

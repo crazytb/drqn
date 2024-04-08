@@ -5,6 +5,10 @@
 # % tensorboard --logdir=runs
 # 이거 extreme edge device로 키워드 잡으면 좋을듯
 
+# 그냥 beacon마다 log 받는 것으로 하고 (log 형식도 정의하면 좋을 듯, UL MU-MIMO같은거 쓰고), 그걸로 학습시키는 걸로...
+# 스테이션의 수가 달라도 인풋 사이즈가 같도록 할 것
+# federated learning heterogeneous environment
+
 import os
 import numpy as np
 import pandas as pd
@@ -30,7 +34,7 @@ else:
 batch_size = 1
 learning_rate = 1e-3
 min_epi_num = 20 # Start moment to train the Q network
-episodes = 1000
+episodes = 100
 target_update_period = 10
 eps_start = 0.1
 eps_end = 0.001
@@ -42,7 +46,7 @@ random_update = False    # If you want to do random update instead of sequential
 lookup_step = 20        # If you want to do random update instead of sequential update
 
 # Number of envs param
-n_agents = 10
+n_agents = 3
 density = 1
 max_step = 300
 # None, "dumbbell", "linear", "fullmesh"
@@ -107,8 +111,8 @@ for i_epi in tqdm(range(episodes), desc="Episodes", position=0, leave=True):
     for t in tqdm(range(max_step), desc="   Steps", position=1, leave=False):
         # Get action
         actions, h_cum, c_cum, probs, entropies = zip(*[agents[i].sample_action(torch.from_numpy(obs_cum[i]).float().to(device).unsqueeze(0).unsqueeze(0),
-                                                                  h_cum[i].to(device),
-                                                                  c_cum[i].to(device)) for i in range(n_agents)])
+                                                                                h_cum[i].to(device),
+                                                                                c_cum[i].to(device)) for i in range(n_agents)])
         a = np.array([a[0].item() for a in actions])
 
         for i in range(n_agents):
@@ -154,7 +158,7 @@ for i_epi in tqdm(range(episodes), desc="Episodes", position=0, leave=True):
     for prob_tensor in probs:
         prob_list.append(round(prob_tensor[-1].item(), 2))
     
-    print(f"n_episode: {i_epi}/{episodes}, score: {reward_cum[-1]:.2f}, probs: {prob_list}")
+    print(f"n_episode: {i_epi}/{episodes}, score: {np.mean(reward_cum):.2f}, probs: {prob_list}")
     
     # Log the reward
     writer.add_scalar('Rewards per episodes', reward_cum[-1], i_epi)

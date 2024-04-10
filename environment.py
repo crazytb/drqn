@@ -28,6 +28,7 @@ POWERCOEFF = 0.1
 AGECOEFF = 100
 
 class PNDEnv(Env):
+    tx_prob = 0.5
     def __init__(self, **kwargs):
         """
         Initialize the PNDEnv class.
@@ -113,17 +114,15 @@ class PNDEnv(Env):
         self._current_age[idx_success] = 0
         self._max_age = np.maximum(self._current_age, self._max_age)
         self._done_within_epi[idx_success] = 1
-        
         self.episode_length -= 1
         
-        # reward = -AGECOEFF*np.mean(self._current_age) # Reward should be a self.n length vector
-        # reward = len(idx_success)/self.n
-        reward = np.sum(self._prev_action)/self.n
+        reward = len(idx_success)/self.n - np.mean(self._max_age)
         
         done = (self.episode_length == 0)
         
         # if done:
-        #     reward -= AGECOEFF*np.mean(self._max_age)
+        #     jains_fairness_index = np.sum(self._max_age)**2/(self.n*np.sum(self._max_age**2))
+        #     reward += self.max_episode_length*jains_fairness_index
         
         observation = self.get_obs()
 

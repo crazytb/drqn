@@ -9,6 +9,9 @@
 # 스테이션의 수가 달라도 인풋 사이즈가 같도록 할 것
 # federated learning heterogeneous environment
 
+# 노드는 full mesh면 안됨
+# controller가 그냥 노드 수를 알려주면 되기 때문...
+
 import os
 import numpy as np
 import pandas as pd
@@ -34,7 +37,7 @@ else:
 batch_size = 1
 learning_rate = 1e-3
 min_epi_num = 20 # Start moment to train the Q network
-episodes = 100
+episodes = 1000
 target_update_period = 10
 eps_start = 0.1
 eps_end = 0.001
@@ -46,11 +49,11 @@ random_update = False    # If you want to do random update instead of sequential
 lookup_step = 20        # If you want to do random update instead of sequential update
 
 # Number of envs param
-n_agents = 3
+n_agents = 10
 density = 1
 max_step = 300
 # None, "dumbbell", "linear", "fullmesh"
-model = "fullmesh"
+model = "dumbbell"
 
 
 # Set gym environment
@@ -158,7 +161,7 @@ for i_epi in tqdm(range(episodes), desc="Episodes", position=0, leave=True):
     for prob_tensor in probs:
         prob_list.append(round(prob_tensor[-1].item(), 2))
     
-    print(f"n_episode: {i_epi}/{episodes}, score: {np.mean(reward_cum):.2f}, probs: {prob_list}")
+    print(f"n_episode: {i_epi}/{episodes}, score: {reward_cum[-1]:.2f}, probs: {prob_list}")
     
     # Log the reward
     writer.add_scalar('Rewards per episodes', reward_cum[-1], i_epi)
@@ -178,4 +181,5 @@ df_tobestored.to_csv(output_path + f"/log_{current_time}.csv", index=False)
 writer.close()
 env.close()
 
+print(output_path)
 print(env_params_str)
